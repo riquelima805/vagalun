@@ -25,8 +25,15 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
+    
+    // 🔧 SINTAXE NOVA PARA KOTLIN 2.2 (Igual ao seu app Adla)
+    kotlin {
+        compilerOptions {
+            // Mantido em JVM_17 porque o Jetpack Compose exige Java 17
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+            languageVersion.set(org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_2_2)
+            apiVersion.set(org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_2_2)
+        }
     }
 
     buildFeatures {
@@ -44,18 +51,17 @@ dependencies {
     implementation("androidx.compose.ui:ui:1.6.8")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
-    // Solana — wallet real (keypair, saldo, transferências)
-    implementation("org.sol4k:sol4k:0.7.0")
-    
-    // NOVO WEBRTC: Mantido ativamente pela GetStream no Maven Central.
-    // É um "drop-in replacement", ou seja, usa os mesmos imports org.webrtc.* no código!
-    implementation("io.getstream:stream-webrtc-android:1.2.1")
-// Adicione esta linha junto com as outras dependências
+    // Adicionado o Material Design para resolver o erro do Manifest
     implementation("com.google.android.material:material:1.12.0")
 
-    // NOVO BIP39: A NovaCrypto morreu. Esta é uma biblioteca Web3 padrão 
-    // que contém a classe MnemonicUtils para gerar as 12 palavras perfeitamente.
-    implementation("org.web3j:crypto:4.8.7")
+    // Solana — Atualizado para 0.8.2 (Igual ao Adla)
+    implementation("org.sol4k:sol4k:0.8.2")
+    
+    // NOVO WEBRTC: Mantido ativamente pela GetStream no Maven Central
+    implementation("io.getstream:stream-webrtc-android:1.2.1")
+
+    // Web3j — Atualizado para 4.10.0 (Igual ao Adla)
+    implementation("org.web3j:core:4.10.0")
 
     // Ed25519 puro-Java, só usado pra expandir seed(32) -> par de chaves (SLIP-0010)
     implementation("net.i2p.crypto:eddsa:0.3.0")
