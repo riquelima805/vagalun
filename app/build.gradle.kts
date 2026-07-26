@@ -26,14 +26,9 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     
-    // 🔧 SINTAXE NOVA PARA KOTLIN 2.2 (Igual ao seu app Adla)
-    kotlin {
-        compilerOptions {
-            // Mantido em JVM_17 porque o Jetpack Compose exige Java 17
-            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
-            languageVersion.set(org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_2_2)
-            apiVersion.set(org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_2_2)
-        }
+    // Voltando ao padrão seguro para o Jetpack Compose
+    kotlinOptions {
+        jvmTarget = "17"
     }
 
     buildFeatures {
@@ -45,24 +40,27 @@ android {
 }
 
 dependencies {
+    // 🛡️ O BOM força todas as bibliotecas a usarem o Kotlin 1.9.0, evitando erros de metadata
+    implementation(platform("org.jetbrains.kotlin:kotlin-bom:1.9.0"))
+
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.activity:activity-compose:1.9.0")
     implementation("androidx.compose.material3:material3:1.2.1")
     implementation("androidx.compose.ui:ui:1.6.8")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
-    // Adicionado o Material Design para resolver o erro do Manifest
+    // Material Design para o Manifest
     implementation("com.google.android.material:material:1.12.0")
 
     // Solana — Atualizado para 0.8.2 (Igual ao Adla)
     implementation("org.sol4k:sol4k:0.8.2")
     
-    // NOVO WEBRTC: Mantido ativamente pela GetStream no Maven Central
+    // WEBRTC moderno
     implementation("io.getstream:stream-webrtc-android:1.2.1")
 
     // Web3j — Atualizado para 4.10.0 (Igual ao Adla)
     implementation("org.web3j:core:4.10.0")
 
-    // Ed25519 puro-Java, só usado pra expandir seed(32) -> par de chaves (SLIP-0010)
+    // Ed25519 puro-Java
     implementation("net.i2p.crypto:eddsa:0.3.0")
 }
