@@ -44,15 +44,17 @@ dependencies {
     implementation("androidx.compose.ui:ui:1.6.8")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
-   
+    // Solana — wallet real (keypair, saldo, transferências)
     implementation("org.sol4k:sol4k:0.7.0")
     
-    
-    implementation("com.github.webrtc-sdk:android:125.6422.0.0")
+    // NOVO WEBRTC: Mantido ativamente pela GetStream no Maven Central.
+    // É um "drop-in replacement", ou seja, usa os mesmos imports org.webrtc.* no código!
+    implementation("io.getstream:stream-webrtc-android:1.2.1")
 
-    
-    implementation("com.github.NovaCrypto:BIP39:2019.01.27")
+    // NOVO BIP39: A NovaCrypto morreu. Esta é uma biblioteca Web3 padrão 
+    // que contém a classe MnemonicUtils para gerar as 12 palavras perfeitamente.
+    implementation("org.web3j:crypto:4.8.7")
 
-   
+    // Ed25519 puro-Java, só usado pra expandir seed(32) -> par de chaves (SLIP-0010)
     implementation("net.i2p.crypto:eddsa:0.3.0")
 }
