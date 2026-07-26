@@ -1,0 +1,30 @@
+name: Gerar APK do Adla
+
+on:
+  workflow_dispatch: # Permite rodar manualmente se precisar
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Baixar o código do repositório
+      uses: actions/checkout@v4
+
+    - name: Configurar o Java (JDK)
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Dar permissão ao Gradle
+      run: chmod +x gradlew
+
+    - name: Compilar o APK de Teste (Debug)
+      run: ./gradlew assembleDebug
+
+    - name: Salvar e disponibilizar o APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: adla-apk-teste
+        path: app/build/outputs/apk/debug/*.apk
