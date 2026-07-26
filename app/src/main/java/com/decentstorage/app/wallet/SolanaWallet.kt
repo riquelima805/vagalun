@@ -6,7 +6,6 @@ import net.i2p.crypto.eddsa.spec.EdDSAPrivateKeySpec
 import org.sol4k.Connection
 import org.sol4k.Keypair
 import org.sol4k.PublicKey
-import org.sol4k.RpcUrl
 import org.sol4k.TransactionMessage
 import org.sol4k.VersionedTransaction
 import org.sol4k.instruction.TransferInstruction
@@ -31,9 +30,13 @@ class SolanaWallet private constructor(
     companion object {
         /**
          * Deriva a wallet a partir da seed phrase (mesma usada no KeyManager).
-         * rpcUrl: use RpcUrl.DEVNET pra testes, troque pra mainnet quando for produção.
+         * rpcUrl: use o link da DEVNET pra testes, troque pra mainnet quando for produção.
          */
-        fun fromSeedPhrase(seed64: ByteArray, account: Int = 0, rpcUrl: String = RpcUrl.DEVNET): SolanaWallet {
+        fun fromSeedPhrase(
+            seed64: ByteArray, 
+            account: Int = 0, 
+            rpcUrl: String = "https://api.devnet.solana.com" // CORRIGIDO: Passando a String diretamente
+        ): SolanaWallet {
             val ed25519Seed = Slip10.deriveSolanaSeed(seed64, account) // 32 bytes
             val secretKey64 = expandEd25519Seed(ed25519Seed) // 64 bytes: seed(32) + pubkey(32)
             val keypair = Keypair.fromSecretKey(secretKey64)
@@ -50,7 +53,8 @@ class SolanaWallet private constructor(
         }
     }
 
-    suspend fun getBalanceLamports(): Long = connection.getBalance(publicKey)
+    // CORRIGIDO: Adicionado o .toLong() no final para bater com o retorno da função
+    suspend fun getBalanceLamports(): Long = connection.getBalance(publicKey).toLong()
 
     /**
      * Transfere SOL para outro endereço. Usado, por exemplo, pra pagar por um tier
