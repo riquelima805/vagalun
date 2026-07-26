@@ -22,7 +22,6 @@ import com.decentstorage.app.network.webrtc.SignalingClient
 import com.decentstorage.app.network.webrtc.WebRtcManager
 import com.decentstorage.app.wallet.SolanaWallet
 import org.json.JSONObject
-import org.sol4k.RpcUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -119,7 +118,10 @@ class MainActivity : ComponentActivity() {
                     prefs.edit().putString("seed", seedPhrase).apply()
                     masterKey = KeyManager.deriveMasterKey(seedPhrase)
                     val seed64 = KeyManager.seedBytes(seedPhrase)
-                    wallet = SolanaWallet.fromSeedPhrase(seed64, rpcUrl = RpcUrl.DEVNET)
+                    
+                    // CORRIGIDO: Passando a string diretamente em vez de RpcUrl.DEVNET
+                    wallet = SolanaWallet.fromSeedPhrase(seed64, rpcUrl = "https://api.devnet.solana.com")
+                    
                     walletAddress = wallet!!.publicKey.toString()
                     appendLog("Chaves derivadas. Endereço da wallet: $walletAddress")
                 }) { Text("Usar essa seed") }
