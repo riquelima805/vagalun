@@ -50,6 +50,8 @@ dependencies {
     // NOVO WEBRTC: Mantido ativamente pela GetStream no Maven Central.
     // É um "drop-in replacement", ou seja, usa os mesmos imports org.webrtc.* no código!
     implementation("io.getstream:stream-webrtc-android:1.2.1")
+// Adicione esta linha junto com as outras dependências
+    implementation("com.google.android.material:material:1.12.0")
 
     // NOVO BIP39: A NovaCrypto morreu. Esta é uma biblioteca Web3 padrão 
     // que contém a classe MnemonicUtils para gerar as 12 palavras perfeitamente.
