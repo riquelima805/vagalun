@@ -44,13 +44,15 @@ dependencies {
     implementation("androidx.compose.ui:ui:1.6.8")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
-    // Solana — wallet real (keypair, saldo, transferências)
+   
     implementation("org.sol4k:sol4k:0.7.0")
-    implementation("io.github.webrtc-sdk:android:125.6422.0.0")
+    
+    
+    implementation("com.github.webrtc-sdk:android:125.6422.0.0")
 
-    // BIP39 (seed phrase de 12 palavras) — CONFIRME a versão mais recente no Maven Central
-    implementation("io.github.novacrypto:BIP39:2019.01.27")
+    
+    implementation("com.github.NovaCrypto:BIP39:2019.01.27")
 
-    // Ed25519 puro-Java, só usado pra expandir seed(32) -> par de chaves (SLIP-0010)
+   
     implementation("net.i2p.crypto:eddsa:0.3.0")
 }
