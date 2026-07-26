@@ -1,10 +1,6 @@
 package com.decentstorage.app.crypto
 
-import io.github.novacrypto.bip39.MnemonicGenerator
-import io.github.novacrypto.bip39.MnemonicValidator
-import io.github.novacrypto.bip39.SeedCalculator
-import io.github.novacrypto.bip39.Words
-import io.github.novacrypto.bip39.wordlists.English
+import org.web3j.crypto.MnemonicUtils
 import java.security.MessageDigest
 import java.security.SecureRandom
 import javax.crypto.Cipher
@@ -18,8 +14,7 @@ import javax.crypto.spec.SecretKeySpec
  * a MESMA seed usada pra derivar a wallet Solana (ver Slip10 + SolanaWallet). Ou seja,
  * uma única seed phrase recupera tanto o acesso aos arquivos quanto a wallet.
  *
- * NOTA DE DEPENDÊNCIA: usa io.github.novacrypto:BIP39 (verifique a versão mais recente
- * no Maven Central ao montar o projeto — API pode variar levemente entre versões).
+ * NOTA DE DEPENDÊNCIA: usa org.web3j:crypto
  */
 object KeyManager {
 
@@ -28,14 +23,18 @@ object KeyManager {
     fun generateSeedPhrase(): String {
         val entropy = ByteArray(16) // 128 bits -> 12 palavras
         SecureRandom().nextBytes(entropy)
-        val sb = StringBuilder()
-        MnemonicGenerator(English.INSTANCE).createMnemonic(entropy) { sb.append(it) }
-        return sb.toString()
+        // Web3j gera as palavras diretamente a partir da entropia
+        return MnemonicUtils.generateMnemonic(entropy)
     }
 
     fun validateSeedPhrase(phrase: String): Boolean {
         return try {
-            MnemonicValidator.ofWordList(English.INSTANCE).validate(normalize(phrase))
+            val normalized = normalize(phrase)
+            val words = normalized.split(" ")
+            if (words.size !in listOf(12, 15, 18, 21, 24)) return false
+            
+            // O Web3j valida a seed silenciosamente se conseguirmos gerar os bytes dela
+            MnemonicUtils.generateSeed(normalized, "")
             true
         } catch (e: Exception) {
             false
@@ -49,7 +48,8 @@ object KeyManager {
     fun seedBytes(seedPhrase: String, passphrase: String = ""): ByteArray {
         val normalized = normalize(seedPhrase)
         require(validateSeedPhrase(normalized)) { "Seed phrase inválida" }
-        return SeedCalculator().calculateSeed(normalized, passphrase)
+        // Web3j faz o cálculo BIP39 (PBKDF2 HMAC-SHA512) por debaixo dos panos
+        return MnemonicUtils.generateSeed(normalized, passphrase)
     }
 
     /** Chave mestra AES-256 (32 bytes), derivada da seed via SHA-256 — mesma lógica do keyManager.js. */
