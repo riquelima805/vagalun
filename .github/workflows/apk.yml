@@ -17,11 +17,15 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Dar permissão ao Gradle
-      run: chmod +x gradlew
+    # NOVO PASSO: Instala o Gradle na máquina do GitHub
+    - name: Configurar o Gradle
+      uses: gradle/actions/setup-gradle@v3
+      with:
+        gradle-version: '8.7' # Versão recomendada para projetos Android mais recentes
 
+    # ALTERADO: Comando gradle direto em vez de ./gradlew
     - name: Compilar o APK de Teste (Debug)
-      run: ./gradlew assembleDebug
+      run: gradle assembleDebug
 
     - name: Salvar e disponibilizar o APK
       uses: actions/upload-artifact@v4
