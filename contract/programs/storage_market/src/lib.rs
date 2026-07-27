@@ -20,7 +20,6 @@ pub mod storage_market {
 
   
     pub fn init_market_config(ctx: Context<InitMarketConfig>, price_lamports_per_gb_day: u64) -> Result<()> {
-        // Somente o admin pré-definido pode inicializar
         require_keys_eq!(ctx.accounts.admin.key(), ADMIN, ErrorCode::Unauthorized);
         let config = &mut ctx.accounts.market_config;
         config.admin = ctx.accounts.admin.key();
