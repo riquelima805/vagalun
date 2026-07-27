@@ -1,5 +1,6 @@
 package com.decentstorage.app.network
 
+import android.content.Context
 import org.json.JSONObject
 import java.io.DataInputStream
 import java.io.DataOutputStream
@@ -15,19 +16,18 @@ import java.util.concurrent.Executors
  * "cano": aqui é [4 bytes tamanho][payload] por escrita (ver ShardProtocol), lá é uma
  * frame única por mensagem (ver WebRtcFrame).
  *
- * Cria e possui seu PRÓPRIO ShardRequestHandler internamente — não precisa (e não deve)
- * receber um de fora, pra não duplicar o handler que também seria usado pelo caminho WAN
- * com dados/estado diferentes. Uma thread por conexão (pool cacheable): cada put/get é
- * curto (um shard só), não precisa de nada mais sofisticado tipo NIO pra um MVP.
+ * Agora recebe `context` e repassa pro ShardRequestHandler, que precisa dele pra checar
+ * o espaço em disco REAL do aparelho (DeviceStorage) antes de aceitar um shard.
  */
 class ShardServer(
     nodeId: String,
     private val port: Int,
     capacityBytes: Long,
     dataDir: File,
+    context: Context,
     onGossip: ((JSONObject) -> JSONObject)? = null
 ) {
-    private val requestHandler = ShardRequestHandler(nodeId, capacityBytes, dataDir, onGossip)
+    private val requestHandler = ShardRequestHandler(nodeId, capacityBytes, dataDir, context, onGossip)
     private val executor = Executors.newCachedThreadPool()
     private var serverSocket: ServerSocket? = null
     @Volatile private var running = false
