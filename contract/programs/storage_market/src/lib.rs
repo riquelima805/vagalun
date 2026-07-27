@@ -158,32 +158,38 @@ pub mod storage_market {
 
    
     pub fn submit_paid_claim(
-    ctx: Context<SubmitPaidClaim>,
-    chunk_index: u32,
-    chunk_hash: [u8; 32],
-    merkle_proof: Vec<[u8; 32]>,
-) -> Result<()> {
-    // ... validações existentes ...
+        ctx: Context<SubmitPaidClaim>,
+        chunk_index: u32,
+        chunk_hash: [u8; 32],
+        merkle_proof: Vec<[u8; 32]>,
+    ) -> Result<()> {
+        
 
-    // Usa o bump do contexto
-    let seeds = &[
-        b"vault",
-        ctx.accounts.file_vault.file_id.as_ref(),
-        &[ctx.bumps.file_vault], // agora disponível
-    ];
-    let signer = &[&seeds[..]];
+        
+        let payout = ctx.accounts.file_vault.rate_per_shard_per_epoch;
 
-    let cpi_context = CpiContext::new_with_signer(
-        ctx.accounts.system_program.to_account_info(),
-        Transfer {
-            from: ctx.accounts.file_vault.to_account_info(),
-            to: ctx.accounts.provider.to_account_info(),
-        },
-        signer,
-    );
-    transfer(cpi_context, payout)?;
+        
+        let seeds = &[
+            b"vault",
+            ctx.accounts.file_vault.file_id.as_ref(),
+            &[ctx.bumps.file_vault], 
+        ];
+        let signer = &[&seeds[..]];
 
-}
+        let cpi_context = CpiContext::new_with_signer(
+            ctx.accounts.system_program.to_account_info(),
+            Transfer {
+                from: ctx.accounts.file_vault.to_account_info(),
+                to: ctx.accounts.provider.to_account_info(),
+            },
+            signer,
+        );
+        
+        transfer(cpi_context, payout)?;
+
+        
+        Ok(())
+    }
 
     
     pub fn withdraw_unused(ctx: Context<WithdrawUnused>) -> Result<()> {
