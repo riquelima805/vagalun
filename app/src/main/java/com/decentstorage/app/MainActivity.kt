@@ -56,9 +56,7 @@ import java.security.SecureRandom
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.graphics.asImageBitmap
 
-// ============================================================
-// PALETA "Vagalume" — fundo escuro, destaques verde-neon/ciano
-// ============================================================
+
 object VagalunColors {
     val bg = Color(0xFF0B0E13)
     val bgCard = Color(0xFF141924)
@@ -71,9 +69,7 @@ object VagalunColors {
     val warning = Color(0xFFFFC24B)
 }
 
-/** Metadado LOCAL de um arquivo (o que a UI mostra na tela "Arquivos"). Guardado só em
- *  memória/prefs simples aqui — o dado "de verdade" (placements/redundância) já mora no
- *  GossipRegistry.FileMeta; isso aqui é só a casca pra UI (nome, tipo, tamanho, thumbnail). */
+
 data class UiFileEntry(
     val fileId: String,
     val fileName: String,
@@ -81,7 +77,7 @@ data class UiFileEntry(
     val mimeType: String,
     val k: Int,
     val n: Int,
-    val localBytes: ByteArray? = null // cache local após download, pra tocar/ver sem rebaixar de novo
+    val localBytes: ByteArray? = null
 )
 
 enum class HealthState { HEALTHY, DEGRADED, CRITICAL }
@@ -90,7 +86,7 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var prefs: SharedPreferences
 
-    // ---- motor (mesmo core já provado: cripto local + WebRTC + fragmentação) ----
+    
     private var registry: GossipRegistry? = null
     private var shardServer: ShardServer? = null
     private var discovery: PeerDiscovery? = null
@@ -101,12 +97,10 @@ class MainActivity : ComponentActivity() {
     private var signalingClient: SignalingClient? = null
     private var webRtcManager: WebRtcManager? = null
     private var selfNodeId: String? = null
-    // Cota que o USUÁRIO configura no slider. Deixa de ser decorativa: é sempre limitada
-    // pelo espaço físico real do aparelho (ver ensureQuotaWithinPhysicalLimits()).
+    
     private var selfCapacityBytes: Long = 15L * 1024 * 1024 * 1024
     private var selfDataDir: File? = null
-    // URL do signaling server (wss://...) usada pra achar peers PELA INTERNET (WAN), não só
-    // na mesma Wi-Fi/LAN. Persistida em prefs, editável na tela de Configurações.
+    
     private var selfSignalingUrl: String = ""
 
     private var pendingFilePickedCallback: ((Uri) -> Unit)? = null
@@ -118,8 +112,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         prefs = getSharedPreferences("decentstorage", MODE_PRIVATE)
         selfCapacityBytes = prefs.getLong("quotaBytes", selfCapacityBytes)
-        // Se a cota salva de uma sessão anterior não cabe mais no disco de hoje
-        // (ex: usuário encheu o celular de fotos), corrige na hora, silenciosamente.
+       
+        
         selfCapacityBytes = ensureQuotaWithinPhysicalLimits(selfCapacityBytes)
         selfSignalingUrl = prefs.getString("signalingUrl", "") ?: ""
 
@@ -135,13 +129,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Nunca deixa a cota configurada passar do que o disco físico realmente oferece agora. */
+   
     private fun ensureQuotaWithinPhysicalLimits(requested: Long): Long {
         val maxOfferable = DeviceStorage.maxOfferableBytes(this)
-        return requested.coerceAtMost(maxOfferable).coerceAtLeast(1L * 1024 * 1024) // mínimo simbólico de 1MB
+        return requested.coerceAtMost(maxOfferable).coerceAtLeast(1L * 1024 * 1024) 
     }
 
-    // ---------------- init do motor (idêntico em espírito ao MainActivity de teste) ----------------
+    
 
     private fun ensureEngineStarted(seedPhrase: String, onReady: (walletAddr: String) -> Unit, onLog: (String) -> Unit) {
         if (registry != null) return
@@ -173,13 +167,10 @@ class MainActivity : ComponentActivity() {
         wallet = SolanaWallet.fromSeedPhrase(seedBytes)
         anchorClient = AnchorStorageClient(wallet!!)
 
-        // Claim diário agendado via WorkManager — roda mesmo se o app for fechado.
+        
         DailyClaimWorker.schedule(applicationContext)
 
-        // Conecta na WAN (internet, fora da Wi-Fi/LAN local) automaticamente, no mesmo
-        // momento em que o node liga — não existe mais um botão separado "Conectar WAN".
-        // Se não houver URL de signaling configurada ainda, o node segue funcionando só
-        // na LAN (PeerDiscovery/NSD) até o usuário preencher a URL em Configurações.
+       
         if (selfSignalingUrl.isNotBlank()) {
             connectWan(selfSignalingUrl, onLog)
         } else {
@@ -190,13 +181,10 @@ class MainActivity : ComponentActivity() {
         onReady(wallet!!.publicKey.toString())
     }
 
-    /** Abre (ou reabre) a conexão WAN com o signaling server informado. Chamado
-     *  automaticamente ao ligar o node, e também pode ser chamado de novo se o usuário
-     *  trocar a URL em Configurações enquanto o node já está ativo. */
+    
     private fun connectWan(signalingUrl: String, onLog: (String) -> Unit) {
         val nodeId = selfNodeId ?: return
-        // se já existe uma conexão WAN aberta, derruba antes de abrir outra (evita
-        // duplicar sockets se o usuário mudar a URL com o node já ligado)
+       
         disconnectWan()
 
         val reqHandler = ShardRequestHandler(nodeId, selfCapacityBytes, selfDataDir!!, applicationContext) { gossipPayload ->
@@ -231,9 +219,7 @@ class MainActivity : ComponentActivity() {
         pickFile.launch("*/*")
     }
 
-    // ================================================================
-    // NAVEGAÇÃO
-    // ================================================================
+   
     @Composable
     fun VagalunApp() {
         val navController = rememberNavController()
@@ -339,7 +325,7 @@ class MainActivity : ComponentActivity() {
                         },
                         onDelete = { entry ->
                             files = files.filter { it.fileId != entry.fileId }
-                            log("Arquivo removido + sinal de descarte enviado via gossip: ${entry.fileId}")
+                            log("Arquivo removido: ${entry.fileId}")
                         },
                         onOpen = { entry, onLoaded ->
                             scope.launch {
@@ -430,9 +416,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// ================================================================
-// BOTTOM NAV
-// ================================================================
+
 @Composable
 fun VagalunBottomBar(navController: NavHostController) {
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -463,9 +447,7 @@ fun VagalunBottomBar(navController: NavHostController) {
     }
 }
 
-// ================================================================
-// 1. DASHBOARD (O "Formigueiro")
-// ================================================================
+
 @Composable
 fun DashboardScreen(
     nodeActive: Boolean,
@@ -485,7 +467,7 @@ fun DashboardScreen(
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("🔥", fontSize = 28.sp)
+            Text("", fontSize = 28.sp)
             Spacer(Modifier.width(8.dp))
             Text("VAGALUN", color = VagalunColors.neonGreen, fontSize = 24.sp, fontWeight = FontWeight.Bold)
         }
@@ -503,7 +485,7 @@ fun DashboardScreen(
             ) {
                 Column {
                     Text(
-                        if (nodeActive) "Modo Vagalume Ativo" else "Vagalume Adormecido",
+                        if (nodeActive) "Ativo" else "Adormecido",
                         color = VagalunColors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp
                     )
                     Text(
@@ -524,12 +506,12 @@ fun DashboardScreen(
 
         // ---- Estatísticas de rede (peers e uptime são reais; SOL do dia vem da carteira, ver aba Carteira) ----
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StatChip(Modifier.weight(1f), "🐝 $peersCount", "vagalumes perto")
+            StatChip(Modifier.weight(1f), " $peersCount", "Nodes ativos")
             StatChip(Modifier.weight(1f), formatUptime(uptimeMs), "uptime")
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             StatChip(Modifier.weight(1f), "$usedFiles", "arquivos na nuvem")
-            StatChip(Modifier.weight(1f), "$capacityGb GB", "cota cedida (real)")
+            StatChip(Modifier.weight(1f), "$capacityGb GB", "cota cedida")
         }
 
         if (walletAddress.isNotEmpty()) {
@@ -571,9 +553,7 @@ fun formatUptime(ms: Long): String {
     return "${h}h${m}m"
 }
 
-// ================================================================
-// 2. GERENCIADOR DE ARQUIVOS (A Nuvem)
-// ================================================================
+
 @Composable
 fun FilesScreen(
     files: List<UiFileEntry>,
@@ -678,13 +658,11 @@ fun FileRow(entry: UiFileEntry, onClick: () -> Unit, onDelete: () -> Unit) {
     }
 }
 
-/** pequeno helper pra não precisar importar `clickable` toda vez com ripple padrão */
+
 fun Modifier.clickableSimple(onClick: () -> Unit): Modifier =
     this.clickable(onClick = onClick)
 
-// ================================================================
-// 3. MÍDIA — visualizador de imagem / player de vídeo
-// ================================================================
+
 @Composable
 fun MediaViewerScreen(
     entry: UiFileEntry?,
@@ -729,7 +707,7 @@ fun MediaViewerScreen(
             }
         }
 
-        // barra superior
+        
         Row(
             Modifier.fillMaxWidth().align(Alignment.TopCenter).padding(12.dp),
             horizontalArrangement = Arrangement.SpaceBetween
@@ -770,9 +748,7 @@ fun VideoPlayerFromBytes(bytes: ByteArray, fileName: String) {
     )
 }
 
-// ================================================================
-// 4. CONFIGURAÇÕES ("O Motor") — agora com trava real de disco
-// ================================================================
+
 @Composable
 fun SettingsScreen(
     quotaGb: Int,
@@ -793,7 +769,7 @@ fun SettingsScreen(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
-        Text("Configurações do Vagalume", color = VagalunColors.textPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Text("Configurações", color = VagalunColors.textPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
 
         Card(colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard), shape = RoundedCornerShape(18.dp)) {
             Column(Modifier.padding(18.dp)) {
@@ -803,13 +779,12 @@ fun SettingsScreen(
                     value = sliderValue,
                     onValueChange = { sliderValue = it },
                     onValueChangeFinished = { onQuotaChange(sliderValue.toInt()) },
-                    // Trava real: nunca vai além do que o disco físico do aparelho tem
-                    // disponível agora (já descontando 4GB de reserva de sistema).
+                    
                     valueRange = 1f..maxOfferableGb.toFloat().coerceAtLeast(1f),
                     colors = SliderDefaults.colors(thumbColor = VagalunColors.neonGreen, activeTrackColor = VagalunColors.neonGreen)
                 )
                 Text(
-                    "Máximo disponível agora neste aparelho: $maxOfferableGb GB (já reservando 4GB pro sistema)",
+                    "Máximo disponível agora neste aparelho: $maxOfferableGb GB)",
                     color = VagalunColors.textSecondary, fontSize = 11.sp
                 )
             }
@@ -822,22 +797,20 @@ fun SettingsScreen(
             }
         }
 
-        // ---- Rede WAN (signaling) — antes era um botão separado "Conectar WAN"; agora
-        // basta configurar a URL aqui uma vez, e ligar o node (switch do Dashboard) já
-        // conecta automaticamente na internet, não só na Wi-Fi local. ----
+        
         Card(colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard), shape = RoundedCornerShape(18.dp)) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Rede (WAN / internet)", color = VagalunColors.textPrimary, fontWeight = FontWeight.Bold)
                 Text(
-                    "Endereço do servidor de signaling (wss://...). Sem isso, o node só acha " +
-                        "peers na mesma Wi-Fi (LAN). Preenchendo aqui, toda vez que você ligar o " +
-                        "node ele já conecta na internet automaticamente — não precisa de outro botão.",
+                    "Endereço do servidor de signaling (wss://...)." +
+                        "" +
+                        "",
                     color = VagalunColors.textSecondary, fontSize = 11.sp
                 )
                 OutlinedTextField(
                     value = signalingUrl,
                     onValueChange = onSignalingUrlChange,
-                    label = { Text("wss://seu-servidor.exemplo.com") },
+                    label = { Text("wss://vagalun.com") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -857,7 +830,7 @@ fun SettingsScreen(
         ) {
             Icon(Icons.Filled.CleaningServices, contentDescription = null, tint = VagalunColors.neonCyan)
             Spacer(Modifier.width(8.dp))
-            Text("Limpar shards mortos (cache)", color = VagalunColors.textPrimary)
+            Text("Limpar cache", color = VagalunColors.textPrimary)
         }
     }
 }
@@ -877,9 +850,7 @@ fun SettingsToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean
     }
 }
 
-// ================================================================
-// 5. CARTEIRA / AUTENTICAÇÃO (Web3 Invisível)
-// ================================================================
+
 @Composable
 fun WalletOnboardingScreen(onSeedReady: (String) -> Unit) {
     var mode by remember { mutableStateOf("choose") } // choose | create | restore
@@ -893,8 +864,8 @@ fun WalletOnboardingScreen(onSeedReady: (String) -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            Text("🔥 VAGALUN", color = VagalunColors.neonGreen, fontSize = 30.sp, fontWeight = FontWeight.Bold)
-            Text("Sua chave, seu arquivo, sua carteira Solana.", color = VagalunColors.textSecondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Text(" VAGALUN", color = VagalunColors.neonGreen, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+            Text("Sua chave, sua carteira Solana.", color = VagalunColors.textSecondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
 
             when (mode) {
                 "choose" -> {
@@ -916,7 +887,7 @@ fun WalletOnboardingScreen(onSeedReady: (String) -> Unit) {
                             modifier = Modifier.padding(20.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
                     }
-                    Text("Anote essas 12 palavras em papel. Sem elas você perde acesso pra sempre — não tem servidor pra recuperar.", color = VagalunColors.warning, fontSize = 12.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    Text("Anote as 12 palavras em papel. Sem elas você perde acesso pra sempre.", color = VagalunColors.warning, fontSize = 12.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = confirmed, onCheckedChange = { confirmed = it }, colors = CheckboxDefaults.colors(checkedColor = VagalunColors.neonGreen))
                         Text("Já anotei em local seguro", color = VagalunColors.textPrimary, fontSize = 12.sp)
@@ -947,12 +918,7 @@ fun WalletOnboardingScreen(onSeedReady: (String) -> Unit) {
     }
 }
 
-/**
- * TELA DA CARTEIRA — agora com saldo REAL (RPC devnet), envio real de SOL, compra real
- * de pacotes de armazenamento (purchase_tier on-chain) e airdrop de devnet pra testar.
- * Tudo que aparece aqui vem de `wallet.getBalanceLamports()` / `wallet.connection`,
- * nada é mockado.
- */
+
 @Composable
 fun WalletScreen(
     seedPhrase: String,
@@ -986,7 +952,7 @@ fun WalletScreen(
     ) {
         Text("Carteira", color = VagalunColors.textPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
 
-        // ---- Saldo real (devnet) ----
+       
         Card(colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard), shape = RoundedCornerShape(18.dp)) {
             Column(Modifier.padding(18.dp)) {
                 Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
@@ -1004,7 +970,7 @@ fun WalletScreen(
             }
         }
 
-        // ---- Enviar SOL ----
+      
         Card(colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard), shape = RoundedCornerShape(18.dp)) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Enviar SOL", color = VagalunColors.textPrimary, fontWeight = FontWeight.Bold)
@@ -1039,7 +1005,7 @@ fun WalletScreen(
                     modifier = Modifier.fillMaxWidth().height(48.dp)
                 ) { Text(if (busy) "Enviando..." else "Enviar SOL", color = Color.Black, fontWeight = FontWeight.Bold) }
 
-                // Airdrop só funciona em devnet — útil pra testar sem gastar SOL real.
+                
                 OutlinedButton(
                     enabled = !busy,
                     onClick = {
@@ -1057,11 +1023,11 @@ fun WalletScreen(
                         }
                     },
                     modifier = Modifier.fillMaxWidth()
-                ) { Text("Pedir airdrop de teste (devnet)", color = VagalunColors.neonCyan) }
+                ) { Text("Pedir sol devnet", color = VagalunColors.neonCyan) }
             }
         }
 
-        // ---- Comprar pacotes de armazenamento (purchase_tier on-chain) ----
+        
         Card(colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard), shape = RoundedCornerShape(18.dp)) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Comprar espaço extra", color = VagalunColors.textPrimary, fontWeight = FontWeight.Bold)
@@ -1114,7 +1080,7 @@ fun WalletScreen(
         }
 
         Text(
-            "Nunca compartilhe isso com ninguém. Quem tiver essas palavras controla seus arquivos e sua carteira.",
+            "Nunca compartilhe isso com ninguém.",
             color = VagalunColors.danger, fontSize = 12.sp
         )
     }
