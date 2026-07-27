@@ -49,6 +49,8 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 import java.security.SecureRandom
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.graphics.asImageBitmap
 
 // ============================================================
 // PALETA "Vagalume" — fundo escuro, destaques verde-neon/ciano
@@ -137,7 +139,10 @@ class MainActivity : ComponentActivity() {
         registry = reg
         reg.start()
 
-        shardServer = ShardServer(8901, requestHandler).also { it.start() }
+        // Apague a criação do requestHandler e mude o shardServer para:
+shardServer = ShardServer(nodeId, 8901, selfCapacityBytes, selfDataDir!!).also { 
+    it.start() 
+}
 
         discovery = PeerDiscovery(this).also { disc ->
             disc.advertiseSelf(nodeId, 8901)
@@ -632,7 +637,7 @@ fun FileRow(entry: UiFileEntry, onClick: () -> Unit, onDelete: () -> Unit) {
 
 /** pequeno helper pra não precisar importar `clickable` toda vez com ripple padrão */
 fun Modifier.clickableSimple(onClick: () -> Unit): Modifier =
-    this.then(androidx.compose.foundation.clickable(onClick = onClick))
+    this.clickable(onClick = onClick)
 
 // ================================================================
 // 3. MÍDIA — visualizador de imagem / player de vídeo
@@ -670,7 +675,7 @@ fun MediaViewerScreen(
                 }
                 if (bmp != null) {
                     androidx.compose.foundation.Image(
-                        bitmap = androidx.compose.ui.graphics.asImageBitmap(bmp),
+                        bitmap = bmp.asImageBitmap()
                         contentDescription = entry?.fileName,
                         modifier = Modifier.fillMaxSize()
                     )
