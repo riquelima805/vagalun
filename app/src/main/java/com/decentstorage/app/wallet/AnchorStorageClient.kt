@@ -2,6 +2,7 @@ package com.decentstorage.app.wallet
 
 import org.sol4k.AccountMeta
 import org.sol4k.Base58
+import org.sol4k.Transaction
 import org.sol4k.PublicKey
 import org.sol4k.TransactionMessage
 import org.sol4k.VersionedTransaction
