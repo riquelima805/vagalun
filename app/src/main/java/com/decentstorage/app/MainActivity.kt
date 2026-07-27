@@ -105,6 +105,9 @@ class MainActivity : ComponentActivity() {
     // pelo espaço físico real do aparelho (ver ensureQuotaWithinPhysicalLimits()).
     private var selfCapacityBytes: Long = 15L * 1024 * 1024 * 1024
     private var selfDataDir: File? = null
+    // URL do signaling server (wss://...) usada pra achar peers PELA INTERNET (WAN), não só
+    // na mesma Wi-Fi/LAN. Persistida em prefs, editável na tela de Configurações.
+    private var selfSignalingUrl: String = ""
 
     private var pendingFilePickedCallback: ((Uri) -> Unit)? = null
     private val pickFile = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -118,6 +121,7 @@ class MainActivity : ComponentActivity() {
         // Se a cota salva de uma sessão anterior não cabe mais no disco de hoje
         // (ex: usuário encheu o celular de fotos), corrige na hora, silenciosamente.
         selfCapacityBytes = ensureQuotaWithinPhysicalLimits(selfCapacityBytes)
+        selfSignalingUrl = prefs.getString("signalingUrl", "") ?: ""
 
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(
@@ -172,17 +176,34 @@ class MainActivity : ComponentActivity() {
         // Claim diário agendado via WorkManager — roda mesmo se o app for fechado.
         DailyClaimWorker.schedule(applicationContext)
 
+        // Conecta na WAN (internet, fora da Wi-Fi/LAN local) automaticamente, no mesmo
+        // momento em que o node liga — não existe mais um botão separado "Conectar WAN".
+        // Se não houver URL de signaling configurada ainda, o node segue funcionando só
+        // na LAN (PeerDiscovery/NSD) até o usuário preencher a URL em Configurações.
+        if (selfSignalingUrl.isNotBlank()) {
+            connectWan(selfSignalingUrl, onLog)
+        } else {
+            onLog("Nenhum servidor de signaling configurado — rodando só na Wi-Fi local. Configure em Config > Rede.")
+        }
+
         onLog("Motor iniciado. nodeId=$nodeId")
         onReady(wallet!!.publicKey.toString())
     }
 
+    /** Abre (ou reabre) a conexão WAN com o signaling server informado. Chamado
+     *  automaticamente ao ligar o node, e também pode ser chamado de novo se o usuário
+     *  trocar a URL em Configurações enquanto o node já está ativo. */
     private fun connectWan(signalingUrl: String, onLog: (String) -> Unit) {
         val nodeId = selfNodeId ?: return
+        // se já existe uma conexão WAN aberta, derruba antes de abrir outra (evita
+        // duplicar sockets se o usuário mudar a URL com o node já ligado)
+        disconnectWan()
+
         val reqHandler = ShardRequestHandler(nodeId, selfCapacityBytes, selfDataDir!!, applicationContext) { gossipPayload ->
             registry?.handleIncomingGossip(gossipPayload) ?: JSONObject()
         }
         val sc = SignalingClient(signalingUrl, nodeId, onSignal = { _, _ -> }) { connected ->
-            onLog(if (connected) "Signaling conectado" else "Signaling desconectado")
+            onLog(if (connected) "Signaling conectado (WAN ativa)" else "Signaling desconectado")
         }
         signalingClient = sc
         val mgr = WebRtcManager(
@@ -196,6 +217,13 @@ class MainActivity : ComponentActivity() {
         webRtcManager = mgr
         sc.onSignal = { from, payload -> mgr.handleSignal(from, payload) }
         sc.connect()
+    }
+
+    private fun disconnectWan() {
+        webRtcManager?.disconnectAll()
+        signalingClient?.disconnect()
+        webRtcManager = null
+        signalingClient = null
     }
 
     private fun pickFileForUpload(callback: (Uri) -> Unit) {
@@ -262,7 +290,18 @@ class MainActivity : ComponentActivity() {
                 composable("dashboard") {
                     DashboardScreen(
                         nodeActive = nodeActive,
-                        onToggleNode = { nodeActive = it },
+                        onToggleNode = { turningOn ->
+                            if (turningOn) {
+                                startNode()
+                                if (selfSignalingUrl.isNotBlank()) {
+                                    scope.launch(Dispatchers.IO) { connectWan(selfSignalingUrl) { log(it) } }
+                                }
+                            } else {
+                                disconnectWan()
+                                nodeActive = false
+                                log("Node desativado — desconectado da WAN (continua descobrível na Wi-Fi local via NSD).")
+                            }
+                        },
                         peersCount = registry?.knownPeers()?.size ?: 0,
                         uptimeMs = if (startedAt > 0) System.currentTimeMillis() - startedAt else 0,
                         walletAddress = walletAddress,
@@ -343,6 +382,7 @@ class MainActivity : ComponentActivity() {
                     )
                 }
                 composable("settings") {
+                    var signalingUrlField by remember { mutableStateOf(selfSignalingUrl) }
                     SettingsScreen(
                         quotaGb = quotaGb,
                         maxOfferableGb = DeviceStorage.maxOfferableGb(this@MainActivity),
@@ -362,6 +402,16 @@ class MainActivity : ComponentActivity() {
                             var freed = 0L
                             dir?.listFiles()?.forEach { f -> freed += f.length(); f.delete() }
                             log("Cache limpo: ${freed / 1024} KB liberados")
+                        },
+                        signalingUrl = signalingUrlField,
+                        onSignalingUrlChange = { signalingUrlField = it },
+                        onSignalingUrlSave = {
+                            selfSignalingUrl = signalingUrlField.trim()
+                            prefs.edit().putString("signalingUrl", selfSignalingUrl).apply()
+                            if (nodeActive && selfSignalingUrl.isNotBlank()) {
+                                scope.launch(Dispatchers.IO) { connectWan(selfSignalingUrl) { log(it) } }
+                                log("Reconectando WAN com nova URL...")
+                            }
                         }
                     )
                 }
@@ -732,7 +782,10 @@ fun SettingsScreen(
     onWifiOnlyChange: (Boolean) -> Unit,
     backgroundSync: Boolean,
     onBackgroundSyncChange: (Boolean) -> Unit,
-    onClearDeadShards: () -> Unit
+    onClearDeadShards: () -> Unit,
+    signalingUrl: String,
+    onSignalingUrlChange: (String) -> Unit,
+    onSignalingUrlSave: () -> Unit
 ) {
     var sliderValue by remember { mutableStateOf(quotaGb.toFloat().coerceAtMost(maxOfferableGb.toFloat())) }
 
@@ -766,6 +819,33 @@ fun SettingsScreen(
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 SettingsToggleRow("Sincronizar apenas no Wi-Fi", wifiOnly, onWifiOnlyChange)
                 SettingsToggleRow("Rodar em segundo plano", backgroundSync, onBackgroundSyncChange)
+            }
+        }
+
+        // ---- Rede WAN (signaling) — antes era um botão separado "Conectar WAN"; agora
+        // basta configurar a URL aqui uma vez, e ligar o node (switch do Dashboard) já
+        // conecta automaticamente na internet, não só na Wi-Fi local. ----
+        Card(colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard), shape = RoundedCornerShape(18.dp)) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Rede (WAN / internet)", color = VagalunColors.textPrimary, fontWeight = FontWeight.Bold)
+                Text(
+                    "Endereço do servidor de signaling (wss://...). Sem isso, o node só acha " +
+                        "peers na mesma Wi-Fi (LAN). Preenchendo aqui, toda vez que você ligar o " +
+                        "node ele já conecta na internet automaticamente — não precisa de outro botão.",
+                    color = VagalunColors.textSecondary, fontSize = 11.sp
+                )
+                OutlinedTextField(
+                    value = signalingUrl,
+                    onValueChange = onSignalingUrlChange,
+                    label = { Text("wss://seu-servidor.exemplo.com") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Button(
+                    onClick = onSignalingUrlSave,
+                    colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.neonCyan),
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                ) { Text("Salvar e conectar", color = Color.Black, fontWeight = FontWeight.Bold) }
             }
         }
 
