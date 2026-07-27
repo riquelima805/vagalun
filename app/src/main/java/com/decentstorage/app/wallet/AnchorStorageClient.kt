@@ -1,0 +1,234 @@
+package com.decentstorage.app.wallet
+
+import org.sol4k.AccountMeta
+import org.sol4k.Base58
+import org.sol4k.PublicKey
+import org.sol4k.TransactionMessage
+import org.sol4k.VersionedTransaction
+import org.sol4k.instruction.BaseInstruction
+
+/**
+ * Ponte entre o app e o programa Anchor `storage_market`. Monta as instruções na mão
+ * (discriminador Anchor + Borsh) porque não existe um "Anchor client" oficial pra
+ * Kotlin/Android — só o sol4k, que fala só o protocolo RPC/transação cru.
+ *
+ * NÃO TESTADO contra o programa on-chain de verdade (sem toolchain Anchor/dispositivo
+ * aqui). Antes de usar em qualquer valor real:
+ *   1) rode `anchor deploy` na devnet e troque PROGRAM_ID abaixo pelo Program ID real.
+ *   2) confira o layout de contas de cada instrução aqui contra o `#[derive(Accounts)]`
+ *      do contrato — a ORDEM das AccountMeta importa, tem que bater exatamente.
+ *   3) teste cada instrução isolada (ex: init_account) antes de tentar o fluxo completo.
+ */
+class AnchorStorageClient(
+    private val wallet: SolanaWallet,
+    programIdBase58: String = "11111111111111111111111111111111111111111", // TROQUE após o deploy real
+    treasuryBase58: String = "11111111111111111111111111111111111111111"   // TROQUE pela wallet de tesouraria real
+) {
+    private val programId = PublicKey(programIdBase58)
+    private val programIdBytes = Base58.decode(programIdBase58)
+    private val treasury = PublicKey(treasuryBase58)
+    private val systemProgram = PublicKey("11111111111111111111111111111111111111111")
+
+    private fun ownerPubkey(): PublicKey = wallet.publicKey
+    private fun ownerBytes(): ByteArray = Base58.decode(wallet.publicKey.toBase58())
+
+    private fun pda(seeds: List<ByteArray>): PublicKey {
+        val (bytes, _bump) = PdaUtils.findProgramAddress(seeds, programIdBytes)
+        return PublicKey(bytes)
+    }
+
+    // ---------------- PDAs conhecidas ----------------
+
+    fun marketConfigPda(): PublicKey = pda(listOf("market_config".toByteArray()))
+    fun userAccountPda(owner: PublicKey = ownerPubkey()): PublicKey =
+        pda(listOf("user".toByteArray(), Base58.decode(owner.toBase58())))
+    fun fileVaultPda(fileIdBytes32: ByteArray): PublicKey =
+        pda(listOf("vault".toByteArray(), fileIdBytes32))
+    fun placementPda(fileVault: PublicKey, shardIndex: Int): PublicKey =
+        pda(listOf("placement".toByteArray(), Base58.decode(fileVault.toBase58()), byteArrayOf(shardIndex.toByte())))
+    fun providerRecordPda(provider: PublicKey): PublicKey =
+        pda(listOf("provider_record".toByteArray(), Base58.decode(provider.toBase58())))
+    fun freeContributionPda(provider: PublicKey, contentIdBytes32: ByteArray, shardIndex: Int): PublicKey =
+        pda(listOf("free".toByteArray(), Base58.decode(provider.toBase58()), contentIdBytes32, byteArrayOf(shardIndex.toByte())))
+
+    private suspend fun sendSingle(instructionData: ByteArray, accounts: List<AccountMeta>): String {
+        val instruction = BaseInstruction(instructionData, accounts, programId)
+        val blockhash = wallet.connection.getLatestBlockhash()
+        val message = TransactionMessage.newMessage(wallet.publicKey, blockhash, instruction)
+        val tx = VersionedTransaction(message)
+        tx.sign(wallet.keypair)
+        return wallet.connection.sendTransaction(tx)
+    }
+
+    // ================================================================
+    // init_account — cria a conta de usuário (tier free de 500MB já começa aqui)
+    // ================================================================
+    suspend fun initAccount(): String {
+        val data = PdaUtils.instructionDiscriminator("init_account")
+        val accounts = listOf(
+            AccountMeta.writable(userAccountPda()),
+            AccountMeta.signerAndWritable(ownerPubkey()),
+            AccountMeta.writable(systemProgram)
+        )
+        return sendSingle(data, accounts)
+    }
+
+    // ================================================================
+    // purchase_tier — "Pacotes Rápidos" (50GB / 100GB / 1TB) da tela de Aluguel
+    // ================================================================
+    suspend fun purchaseTier(extraGb: Long): String {
+        val data = BorshWriter()
+            .writeFixedBytes(padDiscriminator(PdaUtils.instructionDiscriminator("purchase_tier")))
+            .toByteArray() // placeholder, sobrescrito abaixo — ver nota
+        val payload = ByteArrayBuilder()
+            .append(PdaUtils.instructionDiscriminator("purchase_tier"))
+            .append(BorshWriter().writeU64(extraGb).toByteArray())
+            .build()
+        val accounts = listOf(
+            AccountMeta.writable(userAccountPda()),
+            AccountMeta.writable(marketConfigPda()),
+            AccountMeta.signerAndWritable(ownerPubkey()),
+            AccountMeta.writable(treasury),
+            AccountMeta.writable(systemProgram)
+        )
+        return sendSingle(payload, accounts)
+    }
+
+    // ================================================================
+    // create_file_vault — o "Medidor de Vida": deposita SOL travado pra um arquivo
+    // ================================================================
+    suspend fun createFileVault(fileIdHex: String, shardSizeBytes: Long, k: Int, n: Int, days: Int): Pair<String, PublicKey> {
+        val fileIdBytes = PdaUtils.fileIdHexToBytes32(fileIdHex)
+        val vaultPda = fileVaultPda(fileIdBytes)
+        val payload = ByteArrayBuilder()
+            .append(PdaUtils.instructionDiscriminator("create_file_vault"))
+            .append(fileIdBytes)
+            .append(BorshWriter().writeU64(shardSizeBytes).toByteArray())
+            .append(BorshWriter().writeU8(k).toByteArray())
+            .append(BorshWriter().writeU8(n).toByteArray())
+            .append(BorshWriter().writeU32(days).toByteArray())
+            .build()
+        val accounts = listOf(
+            AccountMeta.writable(vaultPda),
+            AccountMeta.writable(marketConfigPda()),
+            AccountMeta.signerAndWritable(ownerPubkey()),
+            AccountMeta.writable(systemProgram)
+        )
+        val sig = sendSingle(payload, accounts)
+        return sig to vaultPda
+    }
+
+    // ================================================================
+    // register_placement — registra quem guarda o shard + o commitment Merkle
+    // ================================================================
+    suspend fun registerPlacement(fileVault: PublicKey, shardIndex: Int, merkleRoot: ByteArray, provider: PublicKey): String {
+        val payload = ByteArrayBuilder()
+            .append(PdaUtils.instructionDiscriminator("register_placement"))
+            .append(BorshWriter().writeU8(shardIndex).toByteArray())
+            .append(merkleRoot)
+            .build()
+        val accounts = listOf(
+            AccountMeta.writable(placementPda(fileVault, shardIndex)),
+            AccountMeta.writable(fileVault),
+            AccountMeta.signerAndWritable(ownerPubkey()),
+            AccountMeta.writable(provider),
+            AccountMeta.writable(systemProgram)
+        )
+        return sendSingle(payload, accounts)
+    }
+
+    // ================================================================
+    // submit_paid_claim — provider cobra 1 época (chamado do LADO DE QUEM ARMAZENA)
+    // ================================================================
+    suspend fun submitPaidClaim(
+        placement: PublicKey,
+        fileVault: PublicKey,
+        chunkIndex: Int,
+        chunkHash: ByteArray,
+        merkleProof: List<ByteArray>
+    ): String {
+        val payload = ByteArrayBuilder()
+            .append(PdaUtils.instructionDiscriminator("submit_paid_claim"))
+            .append(BorshWriter().writeU32(chunkIndex).toByteArray())
+            .append(chunkHash)
+            .append(BorshWriter().writeVecOfFixedBytes(merkleProof).toByteArray())
+            .build()
+        val accounts = listOf(
+            AccountMeta.writable(placement),
+            AccountMeta.writable(fileVault),
+            AccountMeta.writable(providerRecordPda(ownerPubkey())),
+            AccountMeta.signerAndWritable(ownerPubkey()), // aqui "owner" = o provider assinando
+            AccountMeta.writable(systemProgram)
+        )
+        return sendSingle(payload, accounts)
+    }
+
+    // ================================================================
+    // withdraw_unused — cancela e saca o saldo não gasto do vault (botão Excluir)
+    // ================================================================
+    suspend fun withdrawUnused(fileVault: PublicKey): String {
+        val payload = PdaUtils.instructionDiscriminator("withdraw_unused")
+        val accounts = listOf(
+            AccountMeta.writable(fileVault),
+            AccountMeta.signerAndWritable(ownerPubkey())
+        )
+        return sendSingle(payload, accounts)
+    }
+
+    // ================================================================
+    // register_free_contribution / report_free_tier_proof — "Give Space, Get Space"
+    // ================================================================
+    suspend fun registerFreeContribution(
+        contentIdHex: String, shardIndex: Int, shardSizeBytes: Long, merkleRoot: ByteArray, provider: PublicKey
+    ): String {
+        val contentIdBytes = PdaUtils.fileIdHexToBytes32(contentIdHex)
+        val payload = ByteArrayBuilder()
+            .append(PdaUtils.instructionDiscriminator("register_free_contribution"))
+            .append(contentIdBytes)
+            .append(BorshWriter().writeU8(shardIndex).toByteArray())
+            .append(BorshWriter().writeU64(shardSizeBytes).toByteArray())
+            .append(merkleRoot)
+            .build()
+        val accounts = listOf(
+            AccountMeta.writable(freeContributionPda(provider, contentIdBytes, shardIndex)),
+            AccountMeta.signerAndWritable(ownerPubkey()),
+            AccountMeta.writable(provider),
+            AccountMeta.writable(systemProgram)
+        )
+        return sendSingle(payload, accounts)
+    }
+
+    suspend fun reportFreeTierProof(
+        contribution: PublicKey, chunkIndex: Int, chunkHash: ByteArray, merkleProof: List<ByteArray>
+    ): String {
+        val payload = ByteArrayBuilder()
+            .append(PdaUtils.instructionDiscriminator("report_free_tier_proof"))
+            .append(BorshWriter().writeU32(chunkIndex).toByteArray())
+            .append(chunkHash)
+            .append(BorshWriter().writeVecOfFixedBytes(merkleProof).toByteArray())
+            .build()
+        val accounts = listOf(
+            AccountMeta.writable(contribution),
+            AccountMeta.writable(userAccountPda(ownerPubkey())),
+            AccountMeta.writable(providerRecordPda(ownerPubkey())),
+            AccountMeta.signerAndWritable(ownerPubkey()),
+            AccountMeta.writable(systemProgram)
+        )
+        return sendSingle(payload, accounts)
+    }
+
+    // ---------------- Devnet helpers ----------------
+
+    /** Airdrop de SOL de teste — só funciona em devnet/testnet, mainnet rejeita. */
+    suspend fun requestDevnetAirdrop(lamports: Long = 1_000_000_000L): String =
+        wallet.connection.requestAirdrop(wallet.publicKey, lamports)
+
+    private fun padDiscriminator(d: ByteArray) = d // placeholder sem uso — mantido só pra clareza do writer acima
+}
+
+/** Concatenação simples de vários ByteArray, sem depender de nada externo. */
+private class ByteArrayBuilder {
+    private val out = java.io.ByteArrayOutputStream()
+    fun append(bytes: ByteArray): ByteArrayBuilder { out.write(bytes); return this }
+    fun build(): ByteArray = out.toByteArray()
+}
