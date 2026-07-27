@@ -139,11 +139,10 @@ class MainActivity : ComponentActivity() {
         registry = reg
         reg.start()
 
-        // Apague a criação do requestHandler e mude o shardServer para:
-shardServer = ShardServer(nodeId, 8901, selfCapacityBytes, selfDataDir!!).also { 
+        shardServer = ShardServer(nodeId, 8901, selfCapacityBytes, selfDataDir!!).also { 
     it.start() 
 }
-
+        
         discovery = PeerDiscovery(this).also { disc ->
             disc.advertiseSelf(nodeId, 8901)
             disc.startDiscovery { peer -> reg.addOrUpdatePeer(peer.nodeId, peer.host, peer.port) }
