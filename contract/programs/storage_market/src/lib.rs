@@ -433,16 +433,22 @@ pub struct InitAccount<'info> {
 pub struct PurchaseTier<'info> {
     #[account(mut, has_one = owner, seeds = [b"user", owner.key().as_ref()], bump)]
     pub user_account: Account<'info, UserAccount>,
+    
     #[account(seeds = [b"market_config"], bump)]
     pub market_config: Account<'info, MarketConfig>,
+    
     #[account(mut)]
     pub owner: Signer<'info>,
     
-    #[account(mut)]
-    pub treasury: AccountInfo<'info>,
+   
+    #[account(
+        mut, 
+        address = market_config.admin @ ErrorCode::Unauthorized
+    )]
+    pub treasury: SystemAccount<'info>,
+    
     pub system_program: Program<'info, System>,
 }
-
 #[derive(Accounts)]
 #[instruction(file_id: [u8; 32])]
 pub struct CreateFileVault<'info> {
