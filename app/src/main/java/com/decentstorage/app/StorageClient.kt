@@ -6,24 +6,12 @@ import com.decentstorage.app.erasure.ReedSolomon
 import com.decentstorage.app.network.GossipRegistry
 import java.util.Base64
 
-/**
- * Orquestra upload/download do ponto de vista do dono do arquivo.
- * Port direto de client.js, mas escolhendo peers a partir do GossipRegistry local
- * (visão distribuída da rede) em vez de perguntar pra um coordenador central.
- */
 class StorageClient(private val registry: GossipRegistry) {
 
     data class UploadResult(val fileId: String, val k: Int, val m: Int, val n: Int, val peerIds: List<String>)
 
     fun shardKeyFor(fileId: String, shardIndex: Int) = "${fileId}_$shardIndex"
 
-    /**
-     * 1. cifra localmente (a chave nunca sai do dispositivo do dono)
-     * 2. fragmenta o ciphertext em K+M shards (Reed-Solomon)
-     * 3. escolhe os N melhores peers conhecidos (score/espaço livre)
-     * 4. distribui um shard por peer
-     * 5. registra os metadados (não o conteúdo) no GossipRegistry local, que propaga por gossip
-     */
     fun uploadFile(buffer: ByteArray, fileName: String, masterKey: ByteArray, k: Int = 6, m: Int = 4): UploadResult {
         val n = k + m
         val fileId = KeyManager.fileIdFor(fileName)
@@ -60,7 +48,7 @@ class StorageClient(private val registry: GossipRegistry) {
         return UploadResult(fileId, k, m, n, placements.map { it.nodeId })
     }
 
-    /** Baixa e reconstrói um arquivo a partir de qualquer K peers que ainda respondam. */
+    
     fun downloadFile(fileId: String, masterKey: ByteArray): ByteArray {
         val file = registry.getFile(fileId) ?: error("arquivo não encontrado nos metadados conhecidos (aguarde o gossip convergir ou verifique o fileId)")
 
