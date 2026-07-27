@@ -77,9 +77,6 @@ class AnchorStorageClient(
     // purchase_tier — "Pacotes Rápidos" (50GB / 100GB / 1TB) da tela de Aluguel
     // ================================================================
     suspend fun purchaseTier(extraGb: Long): String {
-        val data = BorshWriter()
-            .writeFixedBytes(padDiscriminator(PdaUtils.instructionDiscriminator("purchase_tier")))
-            .toByteArray() // placeholder, sobrescrito abaixo — ver nota
         val payload = ByteArrayBuilder()
             .append(PdaUtils.instructionDiscriminator("purchase_tier"))
             .append(BorshWriter().writeU64(extraGb).toByteArray())
@@ -222,8 +219,6 @@ class AnchorStorageClient(
     /** Airdrop de SOL de teste — só funciona em devnet/testnet, mainnet rejeita. */
     suspend fun requestDevnetAirdrop(lamports: Long = 1_000_000_000L): String =
         wallet.connection.requestAirdrop(wallet.publicKey, lamports)
-
-    private fun padDiscriminator(d: ByteArray) = d // placeholder sem uso — mantido só pra clareza do writer acima
 }
 
 /** Concatenação simples de vários ByteArray, sem depender de nada externo. */
