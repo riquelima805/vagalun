@@ -25,10 +25,9 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    
+
     kotlinOptions {
         jvmTarget = "17"
-        // A SOLUÇÃO RECOMENDADA PELO LOG: Faz o compilador ignorar a diferença de metadados
         freeCompilerArgs = freeCompilerArgs + listOf("-Xskip-metadata-version-check")
     }
 
@@ -47,9 +46,16 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.0")
     implementation("androidx.compose.material3:material3:1.2.1")
     implementation("androidx.compose.ui:ui:1.6.8")
+    implementation("androidx.compose.material:material-icons-extended:1.6.8")
+    implementation("androidx.navigation:navigation-compose:2.7.7")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
     implementation("com.google.android.material:material:1.12.0")
+
+    // Player de vídeo nativo (buffer sequencial via WebRTC/StorageClient já hoje passa
+    // por um arquivo temporário local no cache do app; ver VideoPlayerFromBytes)
+    implementation("com.google.android.exoplayer:exoplayer-core:2.19.1")
+    implementation("com.google.android.exoplayer:exoplayer-ui:2.19.1")
 
     implementation("org.sol4k:sol4k:0.8.2")
     implementation("io.getstream:stream-webrtc-android:1.2.1")
@@ -57,7 +63,6 @@ dependencies {
     implementation("net.i2p.crypto:eddsa:0.3.0")
 }
 
-// ARMA SECRETA: Força qualquer biblioteca teimosa a usar a versão 1.9.0 do Kotlin
 configurations.all {
     resolutionStrategy {
         force("org.jetbrains.kotlin:kotlin-stdlib:1.9.0")
