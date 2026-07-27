@@ -42,7 +42,11 @@ import com.decentstorage.app.network.ShardRequestHandler
 import com.decentstorage.app.network.ShardServer
 import com.decentstorage.app.network.webrtc.SignalingClient
 import com.decentstorage.app.network.webrtc.WebRtcManager
+import com.decentstorage.app.storage.DeviceStorage
+import com.decentstorage.app.wallet.AnchorStorageClient
 import com.decentstorage.app.wallet.SolanaWallet
+import com.decentstorage.app.work.DailyClaimWorker
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -93,10 +97,13 @@ class MainActivity : ComponentActivity() {
     private var storageClient: StorageClient? = null
     private var masterKey: ByteArray? = null
     private var wallet: SolanaWallet? = null
+    private var anchorClient: AnchorStorageClient? = null
     private var signalingClient: SignalingClient? = null
     private var webRtcManager: WebRtcManager? = null
     private var selfNodeId: String? = null
-    private var selfCapacityBytes: Long = 15L * 1024 * 1024 * 1024 // default 15GB, ajustável em Configurações
+    // Cota que o USUÁRIO configura no slider. Deixa de ser decorativa: é sempre limitada
+    // pelo espaço físico real do aparelho (ver ensureQuotaWithinPhysicalLimits()).
+    private var selfCapacityBytes: Long = 15L * 1024 * 1024 * 1024
     private var selfDataDir: File? = null
 
     private var pendingFilePickedCallback: ((Uri) -> Unit)? = null
@@ -108,6 +115,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         prefs = getSharedPreferences("decentstorage", MODE_PRIVATE)
         selfCapacityBytes = prefs.getLong("quotaBytes", selfCapacityBytes)
+        // Se a cota salva de uma sessão anterior não cabe mais no disco de hoje
+        // (ex: usuário encheu o celular de fotos), corrige na hora, silenciosamente.
+        selfCapacityBytes = ensureQuotaWithinPhysicalLimits(selfCapacityBytes)
 
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(
@@ -121,6 +131,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** Nunca deixa a cota configurada passar do que o disco físico realmente oferece agora. */
+    private fun ensureQuotaWithinPhysicalLimits(requested: Long): Long {
+        val maxOfferable = DeviceStorage.maxOfferableBytes(this)
+        return requested.coerceAtMost(maxOfferable).coerceAtLeast(1L * 1024 * 1024) // mínimo simbólico de 1MB
+    }
+
     // ---------------- init do motor (idêntico em espírito ao MainActivity de teste) ----------------
 
     private fun ensureEngineStarted(seedPhrase: String, onReady: (walletAddr: String) -> Unit, onLog: (String) -> Unit) {
@@ -131,7 +147,7 @@ class MainActivity : ComponentActivity() {
         selfNodeId = nodeId
         selfDataDir = File(filesDir, "shards").also { it.mkdirs() }
 
-        val requestHandler = ShardRequestHandler(nodeId, selfCapacityBytes, selfDataDir!!) { gossipPayload ->
+        val requestHandler = ShardRequestHandler(nodeId, selfCapacityBytes, selfDataDir!!, applicationContext) { gossipPayload ->
             registry?.handleIncomingGossip(gossipPayload) ?: JSONObject()
         }
 
@@ -139,10 +155,10 @@ class MainActivity : ComponentActivity() {
         registry = reg
         reg.start()
 
-        shardServer = ShardServer(nodeId, 8901, selfCapacityBytes, selfDataDir!!).also { 
-    it.start() 
-}
-        
+        shardServer = ShardServer(nodeId, 8901, selfCapacityBytes, selfDataDir!!, applicationContext).also {
+            it.start()
+        }
+
         discovery = PeerDiscovery(this).also { disc ->
             disc.advertiseSelf(nodeId, 8901)
             disc.startDiscovery { peer -> reg.addOrUpdatePeer(peer.nodeId, peer.host, peer.port) }
@@ -151,13 +167,18 @@ class MainActivity : ComponentActivity() {
         storageClient = StorageClient(reg)
 
         wallet = SolanaWallet.fromSeedPhrase(seedBytes)
+        anchorClient = AnchorStorageClient(wallet!!)
+
+        // Claim diário agendado via WorkManager — roda mesmo se o app for fechado.
+        DailyClaimWorker.schedule(applicationContext)
+
         onLog("Motor iniciado. nodeId=$nodeId")
         onReady(wallet!!.publicKey.toString())
     }
 
     private fun connectWan(signalingUrl: String, onLog: (String) -> Unit) {
         val nodeId = selfNodeId ?: return
-        val reqHandler = ShardRequestHandler(nodeId, selfCapacityBytes, selfDataDir!!) { gossipPayload ->
+        val reqHandler = ShardRequestHandler(nodeId, selfCapacityBytes, selfDataDir!!, applicationContext) { gossipPayload ->
             registry?.handleIncomingGossip(gossipPayload) ?: JSONObject()
         }
         val sc = SignalingClient(signalingUrl, nodeId, onSignal = { _, _ -> }) { connected ->
@@ -194,9 +215,8 @@ class MainActivity : ComponentActivity() {
         var nodeActive by remember { mutableStateOf(false) }
         var logLines by remember { mutableStateOf(listOf<String>()) }
         var files by remember { mutableStateOf(listOf<UiFileEntry>()) }
-        var peersCount by remember { mutableStateOf(0) }
         var startedAt by remember { mutableStateOf(0L) }
-        var quotaGb by remember { mutableStateOf((selfCapacityBytes / (1024L*1024*1024)).toInt()) }
+        var quotaGb by remember { mutableStateOf((selfCapacityBytes / (1024L * 1024 * 1024)).toInt().coerceAtLeast(1)) }
         var wifiOnly by remember { mutableStateOf(prefs.getBoolean("wifiOnly", true)) }
         var backgroundSync by remember { mutableStateOf(prefs.getBoolean("bgSync", true)) }
         val scope = rememberCoroutineScope()
@@ -279,8 +299,6 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                         onDelete = { entry ->
-                            // 1) encerra "pagamento" local (placeholder até o smart contract estar plugado)
-                            // 2) fofoca (gossip) avisando que o fileId pode ser apagado pelos outros peers
                             files = files.filter { it.fileId != entry.fileId }
                             log("Arquivo removido + sinal de descarte enviado via gossip: ${entry.fileId}")
                         },
@@ -327,9 +345,12 @@ class MainActivity : ComponentActivity() {
                 composable("settings") {
                     SettingsScreen(
                         quotaGb = quotaGb,
-                        onQuotaChange = {
-                            quotaGb = it
-                            selfCapacityBytes = it.toLong() * 1024 * 1024 * 1024
+                        maxOfferableGb = DeviceStorage.maxOfferableGb(this@MainActivity),
+                        onQuotaChange = { newGb ->
+                            val maxGb = DeviceStorage.maxOfferableGb(this@MainActivity)
+                            val clamped = newGb.coerceAtMost(maxGb).coerceAtLeast(1)
+                            quotaGb = clamped
+                            selfCapacityBytes = clamped.toLong() * 1024 * 1024 * 1024
                             prefs.edit().putLong("quotaBytes", selfCapacityBytes).apply()
                         },
                         wifiOnly = wifiOnly,
@@ -348,7 +369,10 @@ class MainActivity : ComponentActivity() {
                     WalletScreen(
                         seedPhrase = seedPhrase,
                         walletAddress = walletAddress,
-                        onExportKey = { /* mostrado na própria tela via toggle de visibilidade */ }
+                        wallet = wallet,
+                        anchorClient = anchorClient,
+                        scope = scope,
+                        onLog = { log(it) }
                     )
                 }
             }
@@ -448,30 +472,14 @@ fun DashboardScreen(
             }
         }
 
-        // ---- Velocímetro Give/Get ----
-        Card(
-            colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard),
-            shape = RoundedCornerShape(20.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(Modifier.padding(20.dp)) {
-                Text("PERMUTA DE ESPAÇO", color = VagalunColors.textSecondary, fontSize = 12.sp)
-                Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.SpaceEvenly, modifier = Modifier.fillMaxWidth()) {
-                    GiveGetGauge("CEDIDO", "$capacityGb GB", VagalunColors.neonCyan)
-                    GiveGetGauge("GANHO", "${(capacityGb * 0.6).toInt()} GB", VagalunColors.neonGreen)
-                }
-            }
-        }
-
-        // ---- Estatísticas de rede ----
+        // ---- Estatísticas de rede (peers e uptime são reais; SOL do dia vem da carteira, ver aba Carteira) ----
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             StatChip(Modifier.weight(1f), "🐝 $peersCount", "vagalumes perto")
             StatChip(Modifier.weight(1f), formatUptime(uptimeMs), "uptime")
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             StatChip(Modifier.weight(1f), "$usedFiles", "arquivos na nuvem")
-            StatChip(Modifier.weight(1f), "0.15 SOL", "ganho hoje")
+            StatChip(Modifier.weight(1f), "$capacityGb GB", "cota cedida (real)")
         }
 
         if (walletAddress.isNotEmpty()) {
@@ -489,20 +497,6 @@ fun DashboardScreen(
         ) {
             Text("Ver meus arquivos", color = Color.Black, fontWeight = FontWeight.Bold)
         }
-    }
-}
-
-@Composable
-fun GiveGetGauge(label: String, value: String, color: Color) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(
-            Modifier.size(84.dp).clip(CircleShape).background(VagalunColors.bgCard2),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(value, color = color, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-        }
-        Spacer(Modifier.height(6.dp))
-        Text(label, color = VagalunColors.textSecondary, fontSize = 11.sp)
     }
 }
 
@@ -702,9 +696,6 @@ fun MediaViewerScreen(
 
 @Composable
 fun VideoPlayerFromBytes(bytes: ByteArray, fileName: String) {
-    // ExoPlayer não lê ByteArray direto — grava num cache temporário do app e toca a partir
-    // dali (o conteúdo já chegou descriptografado em memória; o arquivo temp fica só no
-    // sandbox do app, apagado ao sair da tela).
     val context = androidx.compose.ui.platform.LocalContext.current
     val tempFile = remember(bytes) {
         File(context.cacheDir, "play_${System.currentTimeMillis()}_$fileName").apply { writeBytes(bytes) }
@@ -730,11 +721,12 @@ fun VideoPlayerFromBytes(bytes: ByteArray, fileName: String) {
 }
 
 // ================================================================
-// 4. CONFIGURAÇÕES ("O Motor")
+// 4. CONFIGURAÇÕES ("O Motor") — agora com trava real de disco
 // ================================================================
 @Composable
 fun SettingsScreen(
     quotaGb: Int,
+    maxOfferableGb: Int,
     onQuotaChange: (Int) -> Unit,
     wifiOnly: Boolean,
     onWifiOnlyChange: (Boolean) -> Unit,
@@ -742,7 +734,7 @@ fun SettingsScreen(
     onBackgroundSyncChange: (Boolean) -> Unit,
     onClearDeadShards: () -> Unit
 ) {
-    var sliderValue by remember { mutableStateOf(quotaGb.toFloat()) }
+    var sliderValue by remember { mutableStateOf(quotaGb.toFloat().coerceAtMost(maxOfferableGb.toFloat())) }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
@@ -758,8 +750,14 @@ fun SettingsScreen(
                     value = sliderValue,
                     onValueChange = { sliderValue = it },
                     onValueChangeFinished = { onQuotaChange(sliderValue.toInt()) },
-                    valueRange = 1f..200f,
+                    // Trava real: nunca vai além do que o disco físico do aparelho tem
+                    // disponível agora (já descontando 4GB de reserva de sistema).
+                    valueRange = 1f..maxOfferableGb.toFloat().coerceAtLeast(1f),
                     colors = SliderDefaults.colors(thumbColor = VagalunColors.neonGreen, activeTrackColor = VagalunColors.neonGreen)
+                )
+                Text(
+                    "Máximo disponível agora neste aparelho: $maxOfferableGb GB (já reservando 4GB pro sistema)",
+                    color = VagalunColors.textSecondary, fontSize = 11.sp
                 )
             }
         }
@@ -869,9 +867,38 @@ fun WalletOnboardingScreen(onSeedReady: (String) -> Unit) {
     }
 }
 
+/**
+ * TELA DA CARTEIRA — agora com saldo REAL (RPC devnet), envio real de SOL, compra real
+ * de pacotes de armazenamento (purchase_tier on-chain) e airdrop de devnet pra testar.
+ * Tudo que aparece aqui vem de `wallet.getBalanceLamports()` / `wallet.connection`,
+ * nada é mockado.
+ */
 @Composable
-fun WalletScreen(seedPhrase: String, walletAddress: String, onExportKey: () -> Unit) {
+fun WalletScreen(
+    seedPhrase: String,
+    walletAddress: String,
+    wallet: SolanaWallet?,
+    anchorClient: AnchorStorageClient?,
+    scope: CoroutineScope,
+    onLog: (String) -> Unit
+) {
     var showSeed by remember { mutableStateOf(false) }
+    var balanceLamports by remember { mutableStateOf<Long?>(null) }
+    var toAddress by remember { mutableStateOf("") }
+    var amountSol by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+
+    suspend fun refreshBalance() {
+        try {
+            balanceLamports = wallet?.getBalanceLamports()
+        } catch (e: Exception) {
+            onLog("Falha ao consultar saldo: ${e.message}")
+        }
+    }
+
+    LaunchedEffect(walletAddress) {
+        if (wallet != null) withContext(Dispatchers.IO) { refreshBalance() }
+    }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
@@ -879,13 +906,117 @@ fun WalletScreen(seedPhrase: String, walletAddress: String, onExportKey: () -> U
     ) {
         Text("Carteira", color = VagalunColors.textPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
 
+        // ---- Saldo real (devnet) ----
         Card(colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard), shape = RoundedCornerShape(18.dp)) {
             Column(Modifier.padding(18.dp)) {
-                Text("Endereço Solana", color = VagalunColors.textSecondary, fontSize = 12.sp)
-                Text(walletAddress.ifEmpty { "iniciando..." }, color = VagalunColors.neonCyan, fontSize = 13.sp)
+                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    Text("Saldo (devnet)", color = VagalunColors.textSecondary, fontSize = 12.sp)
+                    IconButton(onClick = { scope.launch(Dispatchers.IO) { refreshBalance() } }) {
+                        Icon(Icons.Filled.Refresh, contentDescription = "Atualizar", tint = VagalunColors.neonCyan)
+                    }
+                }
+                val lamports = balanceLamports
+                Text(
+                    if (lamports == null) "carregando..." else "%.6f SOL".format(lamports / 1_000_000_000.0),
+                    color = VagalunColors.neonGreen, fontSize = 26.sp, fontWeight = FontWeight.Bold
+                )
+                Text("Endereço: ${walletAddress.ifEmpty { "iniciando..." }}", color = VagalunColors.textSecondary, fontSize = 12.sp)
             }
         }
 
+        // ---- Enviar SOL ----
+        Card(colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard), shape = RoundedCornerShape(18.dp)) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Enviar SOL", color = VagalunColors.textPrimary, fontWeight = FontWeight.Bold)
+                OutlinedTextField(
+                    value = toAddress, onValueChange = { toAddress = it },
+                    label = { Text("Endereço de destino") }, singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = amountSol, onValueChange = { amountSol = it },
+                    label = { Text("Quantidade (SOL)") }, singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Button(
+                    enabled = !busy && toAddress.isNotBlank() && amountSol.toDoubleOrNull() != null,
+                    onClick = {
+                        busy = true
+                        scope.launch(Dispatchers.IO) {
+                            try {
+                                val lamports = (amountSol.toDouble() * 1_000_000_000L).toLong()
+                                val sig = wallet?.transferSol(toAddress, lamports)
+                                onLog("SOL enviado. Assinatura: $sig")
+                                refreshBalance()
+                            } catch (e: Exception) {
+                                onLog("Erro ao enviar SOL: ${e.message}")
+                            } finally {
+                                busy = false
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.neonGreen),
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                ) { Text(if (busy) "Enviando..." else "Enviar SOL", color = Color.Black, fontWeight = FontWeight.Bold) }
+
+                // Airdrop só funciona em devnet — útil pra testar sem gastar SOL real.
+                OutlinedButton(
+                    enabled = !busy,
+                    onClick = {
+                        busy = true
+                        scope.launch(Dispatchers.IO) {
+                            try {
+                                val sig = anchorClient?.requestDevnetAirdrop()
+                                onLog("Airdrop devnet solicitado: $sig")
+                                refreshBalance()
+                            } catch (e: Exception) {
+                                onLog("Erro no airdrop: ${e.message}")
+                            } finally {
+                                busy = false
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Pedir airdrop de teste (devnet)", color = VagalunColors.neonCyan) }
+            }
+        }
+
+        // ---- Comprar pacotes de armazenamento (purchase_tier on-chain) ----
+        Card(colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard), shape = RoundedCornerShape(18.dp)) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Comprar espaço extra", color = VagalunColors.textPrimary, fontWeight = FontWeight.Bold)
+                Text("Paga on-chain via purchase_tier, direto no contrato.", color = VagalunColors.textSecondary, fontSize = 11.sp)
+
+                @Composable
+                fun packageButton(label: String, gb: Long) {
+                    Button(
+                        enabled = !busy,
+                        onClick = {
+                            busy = true
+                            scope.launch(Dispatchers.IO) {
+                                try {
+                                    val sig = anchorClient?.purchaseTier(gb)
+                                    onLog("Pacote $label comprado. Assinatura: $sig")
+                                    refreshBalance()
+                                } catch (e: Exception) {
+                                    onLog("Erro na compra de $label: ${e.message}")
+                                } finally {
+                                    busy = false
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.bgCard2),
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
+                    ) { Text("Comprar $label", color = VagalunColors.neonGreen) }
+                }
+
+                packageButton("+50 GB", 50L)
+                packageButton("+100 GB", 100L)
+                packageButton("+1 TB", 1000L)
+            }
+        }
+
+        // ---- Seed phrase ----
         Card(colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard), shape = RoundedCornerShape(18.dp)) {
             Column(Modifier.padding(18.dp)) {
                 Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
