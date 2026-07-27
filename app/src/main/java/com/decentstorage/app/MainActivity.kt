@@ -674,12 +674,12 @@ fun MediaViewerScreen(
                     android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes!!.size)
                 }
                 if (bmp != null) {
-                    androidx.compose.foundation.Image(
-                        bitmap = bmp.asImageBitmap()
-                        contentDescription = entry?.fileName,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
+    androidx.compose.foundation.Image(
+        bitmap = bmp.asImageBitmap(),
+        contentDescription = entry?.fileName,
+        modifier = Modifier.fillMaxSize()
+    )
+}
             }
             mimeType.startsWith("video") && bytes != null -> {
                 VideoPlayerFromBytes(bytes!!, entry?.fileName ?: "video.mp4")
