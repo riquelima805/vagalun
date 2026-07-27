@@ -7,22 +7,11 @@ import org.sol4k.TransactionMessage
 import org.sol4k.VersionedTransaction
 import org.sol4k.instruction.BaseInstruction
 
-/**
- * Ponte entre o app e o programa Anchor `storage_market`. Monta as instruções na mão
- * (discriminador Anchor + Borsh) porque não existe um "Anchor client" oficial pra
- * Kotlin/Android — só o sol4k, que fala só o protocolo RPC/transação cru.
- *
- * NÃO TESTADO contra o programa on-chain de verdade (sem toolchain Anchor/dispositivo
- * aqui). Antes de usar em qualquer valor real:
- *   1) rode `anchor deploy` na devnet e troque PROGRAM_ID abaixo pelo Program ID real.
- *   2) confira o layout de contas de cada instrução aqui contra o `#[derive(Accounts)]`
- *      do contrato — a ORDEM das AccountMeta importa, tem que bater exatamente.
- *   3) teste cada instrução isolada (ex: init_account) antes de tentar o fluxo completo.
- */
+
 class AnchorStorageClient(
     private val wallet: SolanaWallet,
-    programIdBase58: String = "11111111111111111111111111111111111111111", // TROQUE após o deploy real
-    treasuryBase58: String = "11111111111111111111111111111111111111111"   // TROQUE pela wallet de tesouraria real
+    programIdBase58: String = "7CAZvZmgbUES9pzr9H1i1EDk7b1mjX2wib8JTVSt7kGk",
+    treasuryBase58: String = "DDE7RZCCbipWuBGwZLYszBQuMxvDSEF59225YoFzkFba"
 ) {
     private val programId = PublicKey(programIdBase58)
     private val programIdBytes = Base58.decode(programIdBase58)
@@ -37,7 +26,7 @@ class AnchorStorageClient(
         return PublicKey(bytes)
     }
 
-    // ---------------- PDAs conhecidas ----------------
+
 
     fun marketConfigPda(): PublicKey = pda(listOf("market_config".toByteArray()))
     fun userAccountPda(owner: PublicKey = ownerPubkey()): PublicKey =
@@ -60,9 +49,7 @@ class AnchorStorageClient(
         return wallet.connection.sendTransaction(tx)
     }
 
-    // ================================================================
-    // init_account — cria a conta de usuário (tier free de 500MB já começa aqui)
-    // ================================================================
+  
     suspend fun initAccount(): String {
         val data = PdaUtils.instructionDiscriminator("init_account")
         val accounts = listOf(
@@ -73,9 +60,17 @@ class AnchorStorageClient(
         return sendSingle(data, accounts)
     }
 
-    // ================================================================
-    // purchase_tier — "Pacotes Rápidos" (50GB / 100GB / 1TB) da tela de Aluguel
-    // ================================================================
+   
+    suspend fun ensureAccountInitialized(): Boolean {
+        return try {
+            initAccount()
+            true
+        } catch (e: Exception) {
+            e.message?.contains("already in use", ignoreCase = true) == true
+        }
+    }
+
+
     suspend fun purchaseTier(extraGb: Long): String {
         val payload = ByteArrayBuilder()
             .append(PdaUtils.instructionDiscriminator("purchase_tier"))
@@ -91,9 +86,6 @@ class AnchorStorageClient(
         return sendSingle(payload, accounts)
     }
 
-    // ================================================================
-    // create_file_vault — o "Medidor de Vida": deposita SOL travado pra um arquivo
-    // ================================================================
     suspend fun createFileVault(fileIdHex: String, shardSizeBytes: Long, k: Int, n: Int, days: Int): Pair<String, PublicKey> {
         val fileIdBytes = PdaUtils.fileIdHexToBytes32(fileIdHex)
         val vaultPda = fileVaultPda(fileIdBytes)
@@ -115,9 +107,7 @@ class AnchorStorageClient(
         return sig to vaultPda
     }
 
-    // ================================================================
-    // register_placement — registra quem guarda o shard + o commitment Merkle
-    // ================================================================
+    
     suspend fun registerPlacement(fileVault: PublicKey, shardIndex: Int, merkleRoot: ByteArray, provider: PublicKey): String {
         val payload = ByteArrayBuilder()
             .append(PdaUtils.instructionDiscriminator("register_placement"))
@@ -134,9 +124,7 @@ class AnchorStorageClient(
         return sendSingle(payload, accounts)
     }
 
-    // ================================================================
-    // submit_paid_claim — provider cobra 1 época (chamado do LADO DE QUEM ARMAZENA)
-    // ================================================================
+  
     suspend fun submitPaidClaim(
         placement: PublicKey,
         fileVault: PublicKey,
@@ -160,9 +148,7 @@ class AnchorStorageClient(
         return sendSingle(payload, accounts)
     }
 
-    // ================================================================
-    // withdraw_unused — cancela e saca o saldo não gasto do vault (botão Excluir)
-    // ================================================================
+   
     suspend fun withdrawUnused(fileVault: PublicKey): String {
         val payload = PdaUtils.instructionDiscriminator("withdraw_unused")
         val accounts = listOf(
@@ -172,9 +158,7 @@ class AnchorStorageClient(
         return sendSingle(payload, accounts)
     }
 
-    // ================================================================
-    // register_free_contribution / report_free_tier_proof — "Give Space, Get Space"
-    // ================================================================
+    
     suspend fun registerFreeContribution(
         contentIdHex: String, shardIndex: Int, shardSizeBytes: Long, merkleRoot: ByteArray, provider: PublicKey
     ): String {
@@ -214,14 +198,12 @@ class AnchorStorageClient(
         return sendSingle(payload, accounts)
     }
 
-    // ---------------- Devnet helpers ----------------
-
-    /** Airdrop de SOL de teste — só funciona em devnet/testnet, mainnet rejeita. */
+   
     suspend fun requestDevnetAirdrop(lamports: Long = 1_000_000_000L): String =
         wallet.connection.requestAirdrop(wallet.publicKey, lamports)
 }
 
-/** Concatenação simples de vários ByteArray, sem depender de nada externo. */
+
 private class ByteArrayBuilder {
     private val out = java.io.ByteArrayOutputStream()
     fun append(bytes: ByteArray): ByteArrayBuilder { out.write(bytes); return this }
