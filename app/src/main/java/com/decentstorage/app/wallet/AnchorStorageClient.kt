@@ -53,17 +53,27 @@ class AnchorStorageClient(
         pda(listOf("free".toByteArray(), Base58.decode(provider.toBase58()), contentIdBytes32, byteArrayOf(shardIndex.toByte())))
 
     private suspend fun sendSingle(instructionData: ByteArray, accounts: List<AccountMeta>): String {
+    return try {
         val instruction = BaseInstruction(instructionData, accounts, programId)
         val blockhash = wallet.connection.getLatestBlockhash()
-        val message = TransactionMessage.newMessage(wallet.publicKey, blockhash, instruction)
-        val tx = VersionedTransaction(message)
+        
+        // AQUI: Usando a transação "Universal" (Legacy) em vez da VersionedTransaction
+        val tx = Transaction(
+            blockhash,
+            instruction,
+            wallet.publicKey
+        )
+        
         tx.sign(wallet.keypair)
-        return wallet.connection.sendTransaction(tx)
+        wallet.connection.sendTransaction(tx)
+        
+    } catch (e: Exception) {
+       
+        e.printStackTrace()
+        "ERRO: ${e.message}"
     }
-
-    // ================================================================
-    // init_account — cria a conta de usuário (tier free de 500MB já começa aqui)
-    // ================================================================
+}
+    
     suspend fun initAccount(): String {
         val data = PdaUtils.instructionDiscriminator("init_account")
         val accounts = listOf(
@@ -74,9 +84,7 @@ class AnchorStorageClient(
         return sendSingle(data, accounts)
     }
 
-    // ================================================================
-    // purchase_tier — "Pacotes Rápidos" (50GB / 100GB / 1TB) da tela de Aluguel
-    // ================================================================
+    
     suspend fun purchaseTier(extraGb: Long): String {
         val payload = ByteArrayBuilder()
             .append(PdaUtils.instructionDiscriminator("purchase_tier"))
@@ -92,9 +100,7 @@ class AnchorStorageClient(
         return sendSingle(payload, accounts)
     }
 
-    // ================================================================
-    // create_file_vault — o "Medidor de Vida": deposita SOL travado pra um arquivo
-    // ================================================================
+   
     suspend fun createFileVault(fileIdHex: String, shardSizeBytes: Long, k: Int, n: Int, days: Int): Pair<String, PublicKey> {
         val fileIdBytes = PdaUtils.fileIdHexToBytes32(fileIdHex)
         val vaultPda = fileVaultPda(fileIdBytes)
@@ -116,9 +122,7 @@ class AnchorStorageClient(
         return sig to vaultPda
     }
 
-    // ================================================================
-    // register_placement — registra quem guarda o shard + o commitment Merkle
-    // ================================================================
+    
     suspend fun registerPlacement(fileVault: PublicKey, shardIndex: Int, merkleRoot: ByteArray, provider: PublicKey): String {
         val payload = ByteArrayBuilder()
             .append(PdaUtils.instructionDiscriminator("register_placement"))
@@ -135,11 +139,7 @@ class AnchorStorageClient(
         return sendSingle(payload, accounts)
     }
 
-    // ================================================================
-    // submit_paid_claim — provider cobra 1 época (chamado do LADO DE QUEM ARMAZENA)
-    // Assinado pelo PRÓPRIO PROVIDER (não pelo dono do arquivo) — é ele quem recebe o
-    // pagamento e quem precisa provar (merkle proof) que ainda guarda o shard.
-    // ================================================================
+   
     suspend fun submitPaidClaim(
         placement: PublicKey,
         fileVault: PublicKey,
@@ -163,9 +163,7 @@ class AnchorStorageClient(
         return sendSingle(payload, accounts)
     }
 
-    // ================================================================
-    // withdraw_unused — cancela e saca o saldo não gasto do vault (botão Excluir)
-    // ================================================================
+    
     suspend fun withdrawUnused(fileVault: PublicKey): String {
         val payload = PdaUtils.instructionDiscriminator("withdraw_unused")
         val accounts = listOf(
