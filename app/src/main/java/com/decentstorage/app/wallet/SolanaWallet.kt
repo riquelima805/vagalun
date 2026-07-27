@@ -23,7 +23,7 @@ import org.sol4k.instruction.TransferInstruction
  */
 class SolanaWallet private constructor(
     val keypair: Keypair,
-    private val connection: Connection
+    val connection: Connection
 ) {
     val publicKey: PublicKey get() = keypair.publicKey
 
