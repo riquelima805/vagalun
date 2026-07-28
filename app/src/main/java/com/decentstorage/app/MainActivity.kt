@@ -183,29 +183,42 @@ class MainActivity : ComponentActivity() {
 
     
     private fun connectWan(signalingUrl: String, onLog: (String) -> Unit) {
-        val nodeId = selfNodeId ?: return
-       
-        disconnectWan()
+    val nodeId = selfNodeId ?: return
+    disconnectWan()
 
-        val reqHandler = ShardRequestHandler(nodeId, selfCapacityBytes, selfDataDir!!, applicationContext) { gossipPayload ->
-            registry?.handleIncomingGossip(gossipPayload) ?: JSONObject()
-        }
-        val sc = SignalingClient(signalingUrl, nodeId, onSignal = { _, _ -> }) { connected ->
-            onLog(if (connected) "Signaling conectado (WAN ativa)" else "Signaling desconectado")
-        }
-        signalingClient = sc
-        val mgr = WebRtcManager(
-            context = this,
-            signalingClient = sc,
-            selfNodeId = nodeId,
-            requestHandler = reqHandler,
-            onTransportReady = { peerId, transport -> registry?.attachWanTransport(peerId, transport) },
-            onTransportClosed = { peerId -> registry?.detachWanTransport(peerId) }
-        )
-        webRtcManager = mgr
-        sc.onSignal = { from, payload -> mgr.handleSignal(from, payload) }
-        sc.connect()
+    val reqHandler = ShardRequestHandler(nodeId, selfCapacityBytes, selfDataDir!!, applicationContext) { gossipPayload ->
+        registry?.handleIncomingGossip(gossipPayload) ?: JSONObject()
     }
+    val sc = SignalingClient(signalingUrl, nodeId, onSignal = { _, _ -> }) { connected ->
+        onLog(if (connected) "Signaling conectado (WAN ativa)" else "Signaling desconectado")
+    }
+    signalingClient = sc
+
+    val iceServersUrl = signalingUrl
+        .replace("wss://", "https://")
+        .replace("ws://", "http://")
+        .trimEnd('/') + "/ice-servers"
+
+    val iceServers = try {
+        TurnCredentialsFetcher.fetch(iceServersUrl)
+    } catch (e: Exception) {
+        onLog("Falha ao buscar TURN (${e.message}), usando só STUN")
+        WebRtcManager.defaultIceServers()
+    }
+
+    val mgr = WebRtcManager(
+        context = this,
+        signalingClient = sc,
+        selfNodeId = nodeId,
+        requestHandler = reqHandler,
+        onTransportReady = { peerId, transport -> registry?.attachWanTransport(peerId, transport) },
+        onTransportClosed = { peerId -> registry?.detachWanTransport(peerId) },
+        iceServers = iceServers
+    )
+    webRtcManager = mgr
+    sc.onSignal = { from, payload -> mgr.handleSignal(from, payload) }
+    sc.connect()
+}
 
     private fun disconnectWan() {
         webRtcManager?.disconnectAll()
