@@ -2,11 +2,6 @@ package com.decentstorage.app.erasure
 
 import kotlin.math.ceil
 
-/**
- * Reed-Solomon sistemático: dado K shards de dados, gera M shards de paridade,
- * totalizando N = K + M shards. QUALQUER K dos N shards reconstroem o arquivo original.
- * Port direto de reedSolomon.js.
- */
 
 data class EncodedShards(
     val shards: List<ByteArray>,
@@ -67,7 +62,7 @@ object ReedSolomon {
         return Array(n) { i -> aug[i].copyOfRange(n, 2 * n) }
     }
 
-    /** Divide um ByteArray em K shards de dados + M shards de paridade. */
+   
     fun encode(buffer: ByteArray, k: Int, m: Int): EncodedShards {
         val n = k + m
         val shardSize = ceil(buffer.size.toDouble() / k).toInt()
@@ -95,10 +90,7 @@ object ReedSolomon {
         return EncodedShards(allShards, buffer.size, shardSize, k, m, n)
     }
 
-    /**
-     * Reconstrói o buffer original a partir de QUALQUER K shards disponíveis.
-     * `available` precisa ter pelo menos K entradas.
-     */
+   
     fun decode(available: List<AvailableShard>, originalLength: Int, shardSize: Int, k: Int, m: Int): ByteArray {
         val n = k + m
         require(available.size >= k) { "Shards insuficientes: precisa de $k, disponível ${available.size}" }
