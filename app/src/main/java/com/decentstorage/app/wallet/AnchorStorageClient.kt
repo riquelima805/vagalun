@@ -2,7 +2,6 @@ package com.decentstorage.app.wallet
 
 import org.sol4k.AccountMeta
 import org.sol4k.Base58
-import org.sol4k.Transaction
 import org.sol4k.PublicKey
 import org.sol4k.TransactionMessage
 import org.sol4k.VersionedTransaction
@@ -43,9 +42,6 @@ class AnchorStorageClient(
             val instruction = BaseInstruction(instructionData, accounts, programId)
             val blockhash = wallet.connection.getLatestBlockhash()
 
-            // Usa VersionedTransaction (mesma classe que já funciona no transferSol),
-            // ao invés da classe legada Transaction, que tem um bug de buffer
-            // que estoura quando a instrução tem várias contas (BufferOverflowException).
             val message = TransactionMessage.newMessage(wallet.publicKey, blockhash, instruction)
             val tx = VersionedTransaction(message)
 
@@ -63,7 +59,7 @@ class AnchorStorageClient(
         val accounts = listOf(
             AccountMeta.writable(userAccountPda()),
             AccountMeta.signerAndWritable(ownerPubkey()),
-            AccountMeta(systemProgram, false, false) // <-- CORRIGIDO
+            AccountMeta(systemProgram, false, false) // CORRIGIDO PARA READ-ONLY
         )
         return sendSingle(data, accounts)
     }
@@ -78,7 +74,7 @@ class AnchorStorageClient(
             AccountMeta.writable(marketConfigPda()),
             AccountMeta.signerAndWritable(ownerPubkey()),
             AccountMeta.writable(treasury),
-            AccountMeta(systemProgram, false, false) // <-- CORRIGIDO
+            AccountMeta(systemProgram, false, false) // CORRIGIDO PARA READ-ONLY
         )
         return sendSingle(payload, accounts)
     }
@@ -98,7 +94,7 @@ class AnchorStorageClient(
             AccountMeta.writable(vaultPda),
             AccountMeta.writable(marketConfigPda()),
             AccountMeta.signerAndWritable(ownerPubkey()),
-            AccountMeta(systemProgram, false, false) // <-- CORRIGIDO
+            AccountMeta(systemProgram, false, false) // CORRIGIDO PARA READ-ONLY
         )
         val sig = sendSingle(payload, accounts)
         return sig to vaultPda
@@ -115,7 +111,7 @@ class AnchorStorageClient(
             AccountMeta.writable(fileVault),
             AccountMeta.signerAndWritable(ownerPubkey()),
             AccountMeta.writable(provider),
-            AccountMeta(systemProgram, false, false) // <-- CORRIGIDO
+            AccountMeta(systemProgram, false, false) // CORRIGIDO PARA READ-ONLY
         )
         return sendSingle(payload, accounts)
     }
@@ -137,8 +133,8 @@ class AnchorStorageClient(
             AccountMeta.writable(placement),
             AccountMeta.writable(fileVault),
             AccountMeta.writable(providerRecordPda(ownerPubkey())),
-            AccountMeta.signerAndWritable(ownerPubkey()), // aqui "owner" = o provider assinando
-            AccountMeta(systemProgram, false, false) // <-- CORRIGIDO
+            AccountMeta.signerAndWritable(ownerPubkey()), 
+            AccountMeta(systemProgram, false, false) // CORRIGIDO PARA READ-ONLY
         )
         return sendSingle(payload, accounts)
     }
@@ -167,7 +163,7 @@ class AnchorStorageClient(
             AccountMeta.writable(freeContributionPda(provider, contentIdBytes, shardIndex)),
             AccountMeta.signerAndWritable(ownerPubkey()),
             AccountMeta.writable(provider),
-            AccountMeta(systemProgram, false, false) // <-- CORRIGIDO
+            AccountMeta(systemProgram, false, false) // CORRIGIDO PARA READ-ONLY
         )
         return sendSingle(payload, accounts)
     }
@@ -186,7 +182,7 @@ class AnchorStorageClient(
             AccountMeta.writable(userAccountPda(ownerPubkey())),
             AccountMeta.writable(providerRecordPda(ownerPubkey())),
             AccountMeta.signerAndWritable(ownerPubkey()),
-            AccountMeta(systemProgram, false, false) // <-- CORRIGIDO
+            AccountMeta(systemProgram, false, false) // CORRIGIDO PARA READ-ONLY
         )
         return sendSingle(payload, accounts)
     }
