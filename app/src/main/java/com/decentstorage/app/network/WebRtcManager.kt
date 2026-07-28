@@ -13,36 +13,6 @@ import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
 import java.util.concurrent.ConcurrentHashMap
 
-/**
- * Gerencia uma PeerConnection WebRTC por peer remoto + o DataChannel que carrega o
- * ShardProtocol (via WebRtcTransport) pela WAN. Fecha o buraco que o README apontava:
- * "PeerDiscovery (NSD) só funciona na mesma Wi-Fi".
- *
- * Fluxo:
- *   1. Dois peers já se acharam por algum rendezvous (BootstrapPeerList) e sabem o
- *      nodeId um do outro.
- *   2. Ambos se registram no SignalingClient (mesmo servidor, troca só texto SDP/ICE).
- *   3. Um dos dois chama connectToPeer(peerNodeId) — cria a PeerConnection, cria o
- *      DataChannel, gera a offer e manda via signaling.
- *   4. O outro lado recebe a offer em onSignal, cria a PeerConnection dele (sem criar
- *      DataChannel — vai RECEBER um via onDataChannel), responde com answer.
- *   5. ICE candidates trocam nos dois sentidos conforme vão sendo descobertos
- *      (STUN público resolve a maioria; NAT simétrico/CGNAT só com TURN).
- *   6. Quando o DataChannel abre (estado OPEN) dos dois lados, `onTransportReady` dispara
- *      com um WebRtcTransport pronto pra uso — é isso que o GossipRegistry pluga no
- *      `PeerInfo.webrtcTransport` do peer correspondente.
- *
- * ATENÇÃO — TURN não é de graça: alguém paga a banda de relay quando STUN não resolve
- * (uma fração real do tráfego, principalmente CGNAT de operadora de celular). Os
- * `iceServers` abaixo trazem só STUN público; troque/complete com um TURN próprio
- * (ex: coturn) ou um serviço pago (Twilio, Xirsys, Cloudflare Calls) antes de produção.
- *
- * NOTA DE DEPENDÊNCIA: usa a API `org.webrtc.*` (google-webrtc). O artefato oficial do
- * Google sumiu do Maven Central; hoje o caminho comum é depender de um fork mantido,
- * ex. `io.github.webrtc-sdk:android:<versão>` ou `io.getstream:stream-webrtc-android:<versão>`
- * — confira qual está ativo ao montar o projeto (a API `org.webrtc.*` em si é estável
- * entre esses forks, o que muda é só as coordenadas do Maven).
- */
 class WebRtcManager(
     context: Context,
     private val signalingClient: SignalingClient,
@@ -56,10 +26,7 @@ class WebRtcManager(
         fun defaultIceServers(): List<PeerConnection.IceServer> = listOf(
             PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
             PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer()
-            // Exemplo de TURN — preencha com seu próprio servidor (coturn) ou provedor pago
-            // antes de contar com isso em produção:
-            // PeerConnection.IceServer.builder("turn:seu-turn.exemplo.com:3478")
-            //     .setUsername("usuario").setPassword("senha").createIceServer()
+           
         )
     }
 
@@ -163,7 +130,7 @@ class WebRtcManager(
         if (pc != null && session.remoteDescSet) {
             pc.addIceCandidate(candidate)
         } else {
-            // ICE pode chegar antes da SDP remota (corrida normal em WebRTC) — guarda pra depois
+           
             session.pendingRemoteCandidates.add(candidate)
         }
     }
@@ -193,16 +160,13 @@ class WebRtcManager(
                 }
             }
             override fun onMessage(buffer: DataChannel.Buffer) {
-                // Ignorado aqui de propósito: uma vez que o canal abre, quem trata onMessage
-                // de verdade é o próprio WebRtcTransport (registrado como observer dele mesmo
-                // dentro do construtor). Esse observer provisório só existe pra pegar o
-                // onStateChange -> OPEN e então criar o WebRtcTransport definitivo.
+               
             }
             override fun onBufferedAmountChange(previousAmount: Long) {}
         })
     }
 
-    /** Só existe pro lado que NÃO criou o DataChannel (o callee recebe via onDataChannel). */
+ 
     private fun observerFor(peerNodeId: String, session: Session): PeerConnection.Observer =
         object : PeerConnection.Observer {
             override fun onIceCandidate(candidate: IceCandidate) {
@@ -250,7 +214,7 @@ class WebRtcManager(
         eglBase.release()
     }
 
-    /** SdpObserver tem 4 métodos; a maioria das chamadas só usa 1 deles, então isso evita repetir os outros 3 vazios. */
+   
     private fun noopSdpObserver(): SdpObserver = object : SdpObserver {
         override fun onCreateSuccess(desc: SessionDescription) {}
         override fun onSetSuccess() {}
