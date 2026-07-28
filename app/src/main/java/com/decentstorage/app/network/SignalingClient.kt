@@ -24,9 +24,10 @@ class SignalingClient(
     var onRelayRequest: ((from: String, requestId: Int, header: JSONObject, payload: ByteArray?) -> Unit)? = null
     var onRelayResponse: ((from: String, requestId: Int, header: JSONObject, payload: ByteArray?) -> Unit)? = null
 
-    // --- NOVOS CALLBACKS DE PEERS ---
+    // --- CALLBACKS DE PEERS ---
     var onPeerList: ((List<String>) -> Unit)? = null
     var onPeerJoined: ((String) -> Unit)? = null
+    var onPeerLeft: ((String) -> Unit)? = null // <--- ADICIONADO AQUI
 
     fun connect() {
         val request = Request.Builder().url(serverUrl).build()
@@ -41,7 +42,7 @@ class SignalingClient(
                 when (msg.optString("type")) {
                     "signal" -> onSignal(msg.getString("from"), msg.getJSONObject("payload"))
                     
-                    // --- TRATAMENTO DAS NOVAS MENSAGENS DE PEERS ---
+                    // --- TRATAMENTO DAS MENSAGENS DE PEERS ---
                     "peers" -> {
                         val arr = msg.getJSONArray("nodeIds")
                         val list = (0 until arr.length()).map { arr.getString(it) }
@@ -50,6 +51,10 @@ class SignalingClient(
 
                     "peer_joined" -> {
                         onPeerJoined?.invoke(msg.getString("nodeId"))
+                    }
+
+                    "peer_left" -> {
+                        onPeerLeft?.invoke(msg.getString("nodeId")) // <--- TRATADO AQUI
                     }
 
                     "relay" -> {
