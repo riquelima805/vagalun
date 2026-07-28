@@ -37,9 +37,9 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.decentstorage.app.crypto.KeyManager
 import com.decentstorage.app.network.GossipRegistry
-import com.decentstorage.app.network.PeerDiscovery
 import com.decentstorage.app.network.ShardRequestHandler
 import com.decentstorage.app.network.ShardServer
+import com.decentstorage.app.network.webrtc.RelayTransport
 import com.decentstorage.app.network.webrtc.SignalingClient
 import com.decentstorage.app.network.webrtc.WebRtcManager
 import com.decentstorage.app.storage.DeviceStorage
@@ -53,6 +53,8 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 import java.security.SecureRandom
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.graphics.asImageBitmap
 
@@ -88,7 +90,6 @@ class MainActivity : ComponentActivity() {
 
     private var registry: GossipRegistry? = null
     private var shardServer: ShardServer? = null
-    private var discovery: PeerDiscovery? = null
     private var storageClient: StorageClient? = null
     private var masterKey: ByteArray? = null
     private var wallet: SolanaWallet? = null
@@ -101,6 +102,10 @@ class MainActivity : ComponentActivity() {
     private var selfDataDir: File? = null
     
     private var selfSignalingUrl: String = ""
+
+    // Usado só pro fallback de Relay quando o WebRTC direto não conecta (NAT ruim, sem TURN etc).
+    private val relayFallbackExecutor = Executors.newSingleThreadScheduledExecutor()
+    private val RELAY_FALLBACK_DELAY_SECONDS = 12L
 
     private var pendingFilePickedCallback: ((Uri) -> Unit)? = null
     private val pickFile = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -152,10 +157,8 @@ class MainActivity : ComponentActivity() {
             it.start()
         }
 
-        discovery = PeerDiscovery(this).also { disc ->
-            disc.advertiseSelf(nodeId, 8901)
-            disc.startDiscovery { peer -> reg.addOrUpdatePeer(peer.nodeId, peer.host, peer.port) }
-        }
+        // Descoberta local via Wi-Fi (NSD) DESATIVADA de propósito: o app é pra funcionar
+        // via WAN/internet (signaling + WebRTC), não depende de estar na mesma rede local.
 
         storageClient = StorageClient(reg)
 
@@ -167,7 +170,7 @@ class MainActivity : ComponentActivity() {
         if (selfSignalingUrl.isNotBlank()) {
             connectWan(selfSignalingUrl, onLog)
         } else {
-            onLog("Nenhum servidor de signaling configurado — rodando só na Wi-Fi local. Configure em Config > Rede.")
+            onLog("Nenhum servidor de signaling configurado. Configure em Config > Rede para conectar via internet.")
         }
 
         onLog("Motor iniciado. nodeId=$nodeId")
@@ -198,7 +201,67 @@ class MainActivity : ComponentActivity() {
         )
         webRtcManager = mgr
         sc.onSignal = { from, payload -> mgr.handleSignal(from, payload) }
+
+        // ESSA PARTE FALTAVA: o server já registra e lista os nós, mas ninguém nunca
+        // mandava a offer WebRTC. Sem isso os dois ficam "registrados" no signaling
+        // mas nunca abrem um DataChannel, e por isso o app mostra "0 online".
+        sc.onPeerList = { peerIds ->
+            val others = peerIds.filter { it != nodeId }
+            if (others.isNotEmpty()) onLog("Peers vistos no signaling: ${others.joinToString()}")
+            others.forEach { peerId ->
+                // só um dos dois lados inicia a offer, pra não colidir (glare)
+                if (nodeId < peerId) {
+                    mgr.connectToPeer(peerId)
+                    scheduleRelayFallback(peerId, sc, reqHandler, onLog)
+                }
+            }
+        }
+        sc.onPeerJoined = { peerId ->
+            if (peerId != nodeId) {
+                onLog("Novo peer entrou na WAN: $peerId")
+                if (nodeId < peerId) {
+                    mgr.connectToPeer(peerId)
+                    scheduleRelayFallback(peerId, sc, reqHandler, onLog)
+                }
+            }
+        }
+        sc.onPeerLeft = { peerId ->
+            onLog("Peer saiu da WAN: $peerId")
+            mgr.disconnect(peerId)
+            registry?.detachWanTransport(peerId)
+        }
+
+        // Se outro peer não conseguir abrir WebRTC direto comigo (NAT ruim etc.) e cair
+        // pro Relay via signaling server, respondo os pedidos de shard normalmente.
+        sc.onRelayRequest = { from, requestId, header, payload ->
+            val (respHeader, respPayload) = try {
+                reqHandler.handle(header, payload)
+            } catch (e: Exception) {
+                JSONObject().put("ok", false).put("error", e.message ?: "erro") to null
+            }
+            sc.sendRelayResponse(from, requestId, respHeader, respPayload)
+        }
+
         sc.connect()
+    }
+
+    // Se depois de X segundos o WebRTC direto não abriu (peer sem transporte anexado),
+    // usa o Relay via signaling server como caminho alternativo em vez de deixar o peer
+    // invisível pra sempre.
+    private fun scheduleRelayFallback(
+        peerId: String,
+        sc: SignalingClient,
+        reqHandler: ShardRequestHandler,
+        onLog: (String) -> Unit
+    ) {
+        relayFallbackExecutor.schedule({
+            val reg = registry ?: return@schedule
+            val alreadyConnected = reg.knownPeers().find { it.nodeId == peerId }?.webrtcTransport != null
+            if (!alreadyConnected && signalingClient === sc) {
+                onLog("WebRTC direto não abriu com $peerId — usando Relay via signaling.")
+                reg.attachWanTransport(peerId, RelayTransport(peerId, sc))
+            }
+        }, RELAY_FALLBACK_DELAY_SECONDS, TimeUnit.SECONDS)
     }
 
     private fun disconnectWan() {
