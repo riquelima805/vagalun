@@ -37,6 +37,17 @@ wss.on('connection', (ws) => {
         if (typeof msg.nodeId !== 'string' || !msg.nodeId) return;
         selfNodeId = msg.nodeId;
         registry.set(selfNodeId, ws);
+
+        // Diz ao cliente recém-registrado quem já está online
+        const others = [...registry.keys()].filter((id) => id !== selfNodeId);
+        send(ws, { type: 'peers', nodeIds: others });
+
+        // Avisa todos os outros que este cliente acabou de entrar
+        for (const [id, sock] of registry) {
+          if (id !== selfNodeId) {
+            send(sock, { type: 'peer_joined', nodeId: selfNodeId });
+          }
+        }
         break;
       }
 
@@ -92,6 +103,9 @@ wss.on('connection', (ws) => {
   ws.on('close', () => {
     if (selfNodeId && registry.get(selfNodeId) === ws) {
       registry.delete(selfNodeId);
+      for (const sock of registry.values()) {
+        send(sock, { type: 'peer_left', nodeId: selfNodeId });
+      }
     }
   });
 });
