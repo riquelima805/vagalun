@@ -12,7 +12,7 @@ class StorageClient(private val registry: GossipRegistry) {
 
     fun shardKeyFor(fileId: String, shardIndex: Int) = "${fileId}_$shardIndex"
 
-    fun uploadFile(buffer: ByteArray, fileName: String, masterKey: ByteArray, k: Int = 6, m: Int = 4): UploadResult {
+    fun uploadFile(buffer: ByteArray, fileName: String, masterKey: ByteArray, k: Int = 1, m: Int = 0): UploadResult {
         val n = k + m
         val fileId = KeyManager.fileIdFor(fileName)
         val fileKey = KeyManager.deriveFileKey(masterKey, fileId)
