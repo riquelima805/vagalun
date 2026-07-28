@@ -56,7 +56,7 @@ class WebRtcManager(
         factory = PeerConnectionFactory.builder().createPeerConnectionFactory()
     }
 
-    /** Chame depois de `signalingClient.connect()`. Roteia offer/answer/ice recebidos pra sessão certa. */
+    
     fun handleSignal(fromNodeId: String, payload: JSONObject) {
         when (payload.optString("kind")) {
             "offer" -> onOfferReceived(fromNodeId, payload.getString("sdp"))
@@ -76,7 +76,7 @@ class WebRtcManager(
         }
         session.pc = pc
 
-        val dcInit = DataChannel.Init().apply { ordered = true } // ordenado/confiável, igual TCP
+        val dcInit = DataChannel.Init().apply { ordered = true } 
         val dc = pc.createDataChannel("shard", dcInit)
         wireDataChannel(peerNodeId, session, dc)
 
