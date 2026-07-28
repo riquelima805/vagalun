@@ -65,7 +65,7 @@ class WebRtcManager(
         }
     }
 
-    /** Inicia conexão WAN com um peer já conhecido (ex: veio do BootstrapPeerList). Nós somos o ofertante. */
+   
     fun connectToPeer(peerNodeId: String) {
         if (sessions.containsKey(peerNodeId)) return // já conectando/conectado
         val session = Session().also { it.isInitiator = true }
