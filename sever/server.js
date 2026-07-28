@@ -1,9 +1,57 @@
-
-
+const http = require('http');
 const WebSocket = require('ws');
 
 const PORT = process.env.PORT || 8787;
-const wss = new WebSocket.Server({ port: PORT });
+
+const METERED_API_KEY = process.env.METERED_API_KEY || 'COLOQUE_SUA_KEY_AQUI';
+const METERED_APP_NAME = process.env.METERED_APP_NAME || 'adla';
+
+
+let turnCache = null;
+let turnCacheExpiresAt = 0;
+const TURN_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos
+
+async function fetchTurnCredentials() {
+  const now = Date.now();
+  if (turnCache && now < turnCacheExpiresAt) {
+    return turnCache;
+  }
+
+  const url = `https://${METERED_APP_NAME}.metered.live/api/v1/turn/credentials?apiKey=${METERED_API_KEY}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Metered respondeu ${res.status}`);
+  }
+  const iceServers = await res.json();
+
+  turnCache = iceServers;
+  turnCacheExpiresAt = now + TURN_CACHE_TTL_MS;
+  return iceServers;
+}
+
+// ---- Servidor HTTP (só a rota de credenciais TURN) ----
+const httpServer = http.createServer(async (req, res) => {
+  if (req.method === 'GET' && req.url === '/ice-servers') {
+    try {
+      const iceServers = await fetchTurnCredentials();
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*', 
+      });
+      res.end(JSON.stringify(iceServers));
+    } catch (e) {
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'falha ao buscar credenciais TURN', detail: e.message }));
+    }
+    return;
+  }
+
+  res.writeHead(404);
+  res.end();
+});
+
+// ---- WebSocket signaling (igual ao que já tinha) ----
+const wss = new WebSocket.Server({ server: httpServer });
 
 // nodeId -> WebSocket
 const registry = new Map();
@@ -22,7 +70,7 @@ wss.on('connection', (ws) => {
     try {
       msg = JSON.parse(raw.toString());
     } catch (e) {
-      return; 
+      return;
     }
 
     switch (msg.type) {
@@ -34,7 +82,6 @@ wss.on('connection', (ws) => {
       }
 
       case 'signal': {
-       
         if (!selfNodeId || typeof msg.to !== 'string' || !msg.payload) return;
         const target = registry.get(msg.to);
         if (!target) {
@@ -46,7 +93,7 @@ wss.on('connection', (ws) => {
       }
 
       default:
-        break; 
+        break;
     }
   });
 
@@ -57,4 +104,7 @@ wss.on('connection', (ws) => {
   });
 });
 
-console.log(`Signaling server rodando na porta ${PORT} (ws://0.0.0.0:${PORT})`);
+httpServer.listen(PORT, () => {
+  console.log(`Signaling server rodando na porta ${PORT} (ws://0.0.0.0:${PORT})`);
+  console.log(`Endpoint de credenciais TURN: http://0.0.0.0:${PORT}/ice-servers`);
+});
