@@ -1076,6 +1076,10 @@ packageButton("+50 GB", 50L)
 packageButton("+100 GB", 100L)
 packageButton("+1 TB", 1000L)
 
+            }
+
+        }
+
         // ---- Seed phrase ----
         Card(colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard), shape = RoundedCornerShape(18.dp)) {
             Column(Modifier.padding(18.dp)) {
