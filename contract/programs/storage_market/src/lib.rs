@@ -75,7 +75,7 @@ pub mod storage_market {
             .tier_bytes
             .checked_add(add_bytes)
             .ok_or(ErrorCode::MathOverflow)?;
-        // Aplica limite máximo
+       
         if account.tier_bytes > MAX_TIER_BYTES {
             account.tier_bytes = MAX_TIER_BYTES;
         }
@@ -197,7 +197,7 @@ pub mod storage_market {
 
         
         let vault = &mut ctx.accounts.file_vault;
-        vault.active = false; // marca como inativo antes de fechar
+        vault.active = false; 
         emit!(VaultClosed {
             file_vault: vault.key(),
             owner: ctx.accounts.owner.key(),
@@ -528,8 +528,8 @@ pub struct RegisterFreeContribution<'info> {
     )]
     pub contribution: Account<'info, FreeContribution>,
     #[account(mut)]
-    pub owner: Signer<'info>,            // dono do conteúdo
-    pub provider: Signer<'info>,         // provider também assina
+    pub owner: Signer<'info>,            
+    pub provider: Signer<'info>,         
     pub system_program: Program<'info, System>,
 }
 
