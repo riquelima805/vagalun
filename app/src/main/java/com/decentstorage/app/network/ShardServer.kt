@@ -9,16 +9,7 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.Executors
 
-/**
- * Lado servidor do ShardProtocol pela LAN — a contraparte do ShardClient. Abre um
- * ServerSocket TCP, aceita conexões, e resolve cada pedido delegando pro
- * ShardRequestHandler — a MESMA lógica que o WebRtcTransport usa pra WAN, só muda o
- * "cano": aqui é [4 bytes tamanho][payload] por escrita (ver ShardProtocol), lá é uma
- * frame única por mensagem (ver WebRtcFrame).
- *
- * Agora recebe `context` e repassa pro ShardRequestHandler, que precisa dele pra checar
- * o espaço em disco REAL do aparelho (DeviceStorage) antes de aceitar um shard.
- */
+
 class ShardServer(
     nodeId: String,
     private val port: Int,
@@ -42,7 +33,7 @@ class ShardServer(
                 val socket = try {
                     ss.accept()
                 } catch (e: Exception) {
-                    if (running) e.printStackTrace() // se não tá mais running, é só o close() derrubando o accept()
+                    if (running) e.printStackTrace() 
                     break
                 }
                 executor.execute { handleConnection(socket) }
@@ -89,8 +80,7 @@ class ShardServer(
                     }
                 }
             } catch (e: Exception) {
-                // conexão caiu no meio, payload corrompido etc — quem pediu vai perceber pelo
-                // timeout/exceção do lado do ShardClient; aqui só descarta e fecha (socket.use)
+                
             }
         }
     }
