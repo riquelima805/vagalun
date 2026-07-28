@@ -43,19 +43,17 @@ class AnchorStorageClient(
     return try {
         val instruction = BaseInstruction(instructionData, accounts, programId)
         val blockhash = wallet.connection.getLatestBlockhash()
-        
-        
-        val tx = Transaction(
-            blockhash,
-            instruction,
-            wallet.publicKey
-        )
-        
+
+        // Usa VersionedTransaction (mesma classe que já funciona no transferSol),
+        // ao invés da classe legada Transaction, que tem um bug de buffer
+        // que estoura quando a instrução tem várias contas (BufferOverflowException).
+        val message = TransactionMessage.newMessage(wallet.publicKey, blockhash, instruction)
+        val tx = VersionedTransaction(message)
+
         tx.sign(wallet.keypair)
         wallet.connection.sendTransaction(tx)
-        
+
     } catch (e: Exception) {
-       
         e.printStackTrace()
         "ERRO: ${e.message}"
     }
