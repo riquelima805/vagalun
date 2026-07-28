@@ -1,15 +1,4 @@
-// signaling-server/server.js
-//
-// Servidor de signaling WebRTC — a ÚNICA peça de infra "nova" pro P2P pela WAN.
-// Não guarda nem transporta bytes de arquivo, shard, ou qualquer conteúdo do usuário:
-// só faz relay de mensagens de registro e de SDP/ICE (texto, poucos KB) entre dois
-// nodeIds que já se conhecem (via BootstrapPeerList no app). Qualquer instância deste
-// arquivo serve — não precisa ser uma infra específica de uma empresa, e a rede
-// sobrevive mesmo que um signaling específico caia, desde que os peers usem outro
-// (ou já tenham trocado o necessário numa sessão anterior).
-//
-// Rodar: npm install && node server.js
-// Variável de ambiente PORT (default 8787).
+
 
 const WebSocket = require('ws');
 
@@ -33,7 +22,7 @@ wss.on('connection', (ws) => {
     try {
       msg = JSON.parse(raw.toString());
     } catch (e) {
-      return; // mensagem malformada — ignora, não derruba a conexão
+      return; 
     }
 
     switch (msg.type) {
@@ -45,9 +34,7 @@ wss.on('connection', (ws) => {
       }
 
       case 'signal': {
-        // relay puro: só repassa pro destinatário se ele estiver conectado agora.
-        // Não persiste nada — se o destino estiver offline, quem chamou decide o
-        // que fazer (retry, avisar o usuário), igual o comentário no SignalingClient.kt.
+       
         if (!selfNodeId || typeof msg.to !== 'string' || !msg.payload) return;
         const target = registry.get(msg.to);
         if (!target) {
@@ -59,7 +46,7 @@ wss.on('connection', (ws) => {
       }
 
       default:
-        break; // tipo desconhecido — ignora
+        break; 
     }
   });
 
