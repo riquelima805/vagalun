@@ -5,7 +5,7 @@ import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.net.Socket
 
-/** Fala com o ShardServer de outro peer — equivalente aos fetch() do client.js/coordinator.js. */
+
 object ShardClient {
 
     private const val TIMEOUT_MS = 8000
@@ -44,7 +44,7 @@ object ShardClient {
         if (!resp.optBoolean("ok", false)) null else resp.optString("proof")
     }
 
-    /** Envia/recebe metadados (peers conhecidos + arquivos conhecidos) — usado pelo GossipRegistry. */
+  
     fun gossip(host: String, port: Int, payload: JSONObject): JSONObject? = try {
         withConnection(host, port) { input, output ->
             payload.put("op", "gossip")
