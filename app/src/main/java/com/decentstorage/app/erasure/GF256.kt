@@ -1,10 +1,5 @@
 package com.decentstorage.app.erasure
 
-/**
- * Aritmética em GF(256) — corpo finito usado pelo Reed-Solomon.
- * Polinômio primitivo: x^8 + x^4 + x^3 + x^2 + 1 (0x11d), gerador = 2.
- * Port direto de gf256.js (mesma tabela, mesmo resultado byte a byte).
- */
 object GF256 {
     private val EXP = IntArray(512)
     private val LOG = IntArray(256)
