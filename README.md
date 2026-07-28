@@ -91,7 +91,7 @@ O Vagalun **não cobra assinatura**. O modelo é *pay-as-you-go*, todo liquidado
 
 | Item | Endereço |
 |---|---|
-| Program ID (contrato `storage_market`) | 
+| Program ID (contrato `storage_market`) | `FPpM2qXfpddkNxuUNqoF2UZg7MJiwF4Un96EWKhVecS6`
 | Carteira do tesouro / admin | `DDE7RZCCbipWuBGwZLYszBQuMxvDSEF59225YoFzkFba` |
 | Rede | Solana Devnet *(em testes — migração para Mainnet planejada após auditoria)* |
 
