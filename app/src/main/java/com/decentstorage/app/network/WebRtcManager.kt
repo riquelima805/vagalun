@@ -23,10 +23,11 @@ class WebRtcManager(
     iceServers: List<PeerConnection.IceServer> = defaultIceServers()
 ) {
     companion object {
+        // Apenas STUNs públicos gratuitos (Google e Cloudflare). TURN não é mais necessário.
         fun defaultIceServers(): List<PeerConnection.IceServer> = listOf(
             PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
-            PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer()
-           
+            PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer(),
+            PeerConnection.IceServer.builder("stun:stun.cloudflare.com:3478").createIceServer()
         )
     }
 
@@ -56,7 +57,6 @@ class WebRtcManager(
         factory = PeerConnectionFactory.builder().createPeerConnectionFactory()
     }
 
-    
     fun handleSignal(fromNodeId: String, payload: JSONObject) {
         when (payload.optString("kind")) {
             "offer" -> onOfferReceived(fromNodeId, payload.getString("sdp"))
@@ -65,7 +65,6 @@ class WebRtcManager(
         }
     }
 
-   
     fun connectToPeer(peerNodeId: String) {
         if (sessions.containsKey(peerNodeId)) return // já conectando/conectado
         val session = Session().also { it.isInitiator = true }
@@ -130,7 +129,6 @@ class WebRtcManager(
         if (pc != null && session.remoteDescSet) {
             pc.addIceCandidate(candidate)
         } else {
-           
             session.pendingRemoteCandidates.add(candidate)
         }
     }
@@ -160,13 +158,12 @@ class WebRtcManager(
                 }
             }
             override fun onMessage(buffer: DataChannel.Buffer) {
-               
+                // Tratado internamente pelo WebRtcTransport
             }
             override fun onBufferedAmountChange(previousAmount: Long) {}
         })
     }
 
- 
     private fun observerFor(peerNodeId: String, session: Session): PeerConnection.Observer =
         object : PeerConnection.Observer {
             override fun onIceCandidate(candidate: IceCandidate) {
@@ -214,7 +211,6 @@ class WebRtcManager(
         eglBase.release()
     }
 
-   
     private fun noopSdpObserver(): SdpObserver = object : SdpObserver {
         override fun onCreateSuccess(desc: SessionDescription) {}
         override fun onSetSuccess() {}
