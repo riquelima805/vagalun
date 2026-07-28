@@ -157,8 +157,7 @@ class MainActivity : ComponentActivity() {
             it.start()
         }
 
-        // Descoberta local via Wi-Fi (NSD) DESATIVADA de propósito: o app é pra funcionar
-        // via WAN/internet (signaling + WebRTC), não depende de estar na mesma rede local.
+        
 
         storageClient = StorageClient(reg)
 
@@ -202,14 +201,12 @@ class MainActivity : ComponentActivity() {
         webRtcManager = mgr
         sc.onSignal = { from, payload -> mgr.handleSignal(from, payload) }
 
-        // ESSA PARTE FALTAVA: o server já registra e lista os nós, mas ninguém nunca
-        // mandava a offer WebRTC. Sem isso os dois ficam "registrados" no signaling
-        // mas nunca abrem um DataChannel, e por isso o app mostra "0 online".
+      
         sc.onPeerList = { peerIds ->
             val others = peerIds.filter { it != nodeId }
             if (others.isNotEmpty()) onLog("Peers vistos no signaling: ${others.joinToString()}")
             others.forEach { peerId ->
-                // só um dos dois lados inicia a offer, pra não colidir (glare)
+               
                 if (nodeId < peerId) {
                     mgr.connectToPeer(peerId)
                     scheduleRelayFallback(peerId, sc, reqHandler, onLog)
@@ -245,9 +242,7 @@ class MainActivity : ComponentActivity() {
         sc.connect()
     }
 
-    // Se depois de X segundos o WebRTC direto não abriu (peer sem transporte anexado),
-    // usa o Relay via signaling server como caminho alternativo em vez de deixar o peer
-    // invisível pra sempre.
+    
     private fun scheduleRelayFallback(
         peerId: String,
         sc: SignalingClient,
