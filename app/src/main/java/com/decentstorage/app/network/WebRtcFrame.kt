@@ -4,23 +4,7 @@ import org.json.JSONObject
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 
-/**
- * TCP dá um stream contínuo, então o ShardProtocol original manda o header JSON e o
- * payload binário como duas escritas separadas (readFully cuida de remontar). Um
- * DataChannel WebRTC não é um stream — cada `send()` chega inteiro ou não chega, como
- * uma mensagem única. Por isso aqui vai tudo (tipo + id de correlação + header + payload)
- * numa frame só:
- *
- *   [1 byte tipo: 0=request, 1=response]
- *   [4 bytes requestId, big-endian]
- *   [4 bytes tamanho do header JSON, big-endian]
- *   [header JSON em UTF-8]
- *   [payload binário (o resto da mensagem, pode ter tamanho 0)]
- *
- * O requestId existe porque o mesmo DataChannel é usado nas DUAS direções ao mesmo tempo
- * (eu posso pedir um shard pro peer enquanto ele me pede outro shard de volta) — sem id
- * não dá pra saber qual resposta é de qual pedido.
- */
+
 object WebRtcFrame {
     const val TYPE_REQUEST = 0
     const val TYPE_RESPONSE = 1
@@ -41,7 +25,7 @@ object WebRtcFrame {
     }
 
     fun decode(buffer: ByteBuffer): Decoded {
-        val bb = buffer.duplicate() // não consome o buffer original, o WebRTC-SDK pode reusar
+        val bb = buffer.duplicate() 
         val type = bb.get().toInt()
         val requestId = bb.int
         val headerLen = bb.int
