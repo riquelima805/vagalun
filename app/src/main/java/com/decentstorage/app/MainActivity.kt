@@ -1048,33 +1048,33 @@ fun WalletScreen(
                 Text("Paga on-chain via purchase_tier, direto no contrato.", color = VagalunColors.textSecondary, fontSize = 11.sp)
 
                 @Composable
-                fun packageButton(label: String, gb: Long) {
-                    Button(
-                        enabled = !busy,
-                        onClick = {
-                            busy = true
-                            scope.launch(Dispatchers.IO) {
-                                try {
-                                    val sig = anchorClient?.purchaseTier(gb)
-                                    onLog("Pacote $label comprado. Assinatura: $sig")
-                                    refreshBalance()
-                                } catch (e: Exception) {
-                                    onLog("Erro na compra de $label: ${e.message}")
-                                } finally {
-                                    busy = false
-                                }
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.bgCard2),
-                        modifier = Modifier.fillMaxWidth().height(48.dp)
-                    ) { Text("Comprar $label", color = VagalunColors.neonGreen) }
+fun packageButton(label: String, gb: Long) {
+    Button(
+        enabled = !busy,
+        onClick = {
+            onLog("Cliquei em Comprar $label")
+            busy = true
+            scope.launch(Dispatchers.IO) {
+                try {
+                    onLog("Chamando purchaseTier, anchorClient é null? ${anchorClient == null}")
+                    val sig = anchorClient?.purchaseTier(gb)
+                    onLog("Pacote $label comprado. Assinatura: $sig")
+                    refreshBalance()
+                } catch (e: Exception) {
+                    onLog("Erro na compra de $label: ${e.message}")
+                } finally {
+                    busy = false
                 }
-
-                packageButton("+50 GB", 50L)
-                packageButton("+100 GB", 100L)
-                packageButton("+1 TB", 1000L)
             }
-        }
+        },
+        colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.bgCard2),
+        modifier = Modifier.fillMaxWidth().height(48.dp)
+    ) { Text("Comprar $label", color = VagalunColors.neonGreen) }
+}
+
+packageButton("+50 GB", 50L)
+packageButton("+100 GB", 100L)
+packageButton("+1 TB", 1000L)
 
         // ---- Seed phrase ----
         Card(colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard), shape = RoundedCornerShape(18.dp)) {
