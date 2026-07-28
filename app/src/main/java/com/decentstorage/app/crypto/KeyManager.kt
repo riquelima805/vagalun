@@ -62,7 +62,7 @@ object KeyManager {
         val iv = ByteArray(12).also { SecureRandom().nextBytes(it) }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
-        val out = cipher.doFinal(data) // ciphertext + authTag(16) concatenados pelo JCE
+        val out = cipher.doFinal(data) 
         val ciphertext = out.copyOfRange(0, out.size - 16)
         val authTag = out.copyOfRange(out.size - 16, out.size)
         return Encrypted(ciphertext, iv, authTag)
