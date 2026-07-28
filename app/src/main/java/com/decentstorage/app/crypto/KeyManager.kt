@@ -8,22 +8,14 @@ import javax.crypto.Mac
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
-/**
- * Resolve o "a chave nunca pode depender só do app instalado": a chave mestra é
- * derivada de uma seed phrase de 12 palavras (BIP39), igual carteira cripto — e é
- * a MESMA seed usada pra derivar a wallet Solana (ver Slip10 + SolanaWallet). Ou seja,
- * uma única seed phrase recupera tanto o acesso aos arquivos quanto a wallet.
- *
- * NOTA DE DEPENDÊNCIA: usa org.web3j:crypto
- */
 object KeyManager {
 
     data class Encrypted(val ciphertext: ByteArray, val iv: ByteArray, val authTag: ByteArray)
 
     fun generateSeedPhrase(): String {
-        val entropy = ByteArray(16) // 128 bits -> 12 palavras
+        val entropy = ByteArray(16) 
         SecureRandom().nextBytes(entropy)
-        // Web3j gera as palavras diretamente a partir da entropia
+      
         return MnemonicUtils.generateMnemonic(entropy)
     }
 
@@ -33,7 +25,7 @@ object KeyManager {
             val words = normalized.split(" ")
             if (words.size !in listOf(12, 15, 18, 21, 24)) return false
             
-            // O Web3j valida a seed silenciosamente se conseguirmos gerar os bytes dela
+           
             MnemonicUtils.generateSeed(normalized, "")
             true
         } catch (e: Exception) {
@@ -44,31 +36,28 @@ object KeyManager {
     private fun normalize(seedPhrase: String): String =
         seedPhrase.trim().split(Regex("\\s+")).joinToString(" ")
 
-    /** 64 bytes — usado tanto pra derivar a chave mestra AES quanto a seed da wallet Solana. */
+   
     fun seedBytes(seedPhrase: String, passphrase: String = ""): ByteArray {
         val normalized = normalize(seedPhrase)
         require(validateSeedPhrase(normalized)) { "Seed phrase inválida" }
-        // Web3j faz o cálculo BIP39 (PBKDF2 HMAC-SHA512) por debaixo dos panos
+      
         return MnemonicUtils.generateSeed(normalized, passphrase)
     }
 
-    /** Chave mestra AES-256 (32 bytes), derivada da seed via SHA-256 — mesma lógica do keyManager.js. */
+  
     fun deriveMasterKey(seedPhrase: String, passphrase: String = ""): ByteArray {
         val seed = seedBytes(seedPhrase, passphrase)
         return MessageDigest.getInstance("SHA-256").digest(seed)
     }
 
-    /** Deriva uma chave por-arquivo a partir da chave mestra + id do arquivo (HMAC, igual ao JS). */
+   
     fun deriveFileKey(masterKey: ByteArray, fileId: String): ByteArray {
         val mac = Mac.getInstance("HmacSHA256")
         mac.init(SecretKeySpec(masterKey, "HmacSHA256"))
         return mac.doFinal(fileId.toByteArray(Charsets.UTF_8))
     }
 
-    /**
-     * Cifra com AES-256-GCM. A cifragem acontece no dispositivo do dono, ANTES de
-     * qualquer shard sair do aparelho — quem armazena o shard nunca vê o conteúdo em claro.
-     */
+  
     fun encryptBuffer(data: ByteArray, key: ByteArray): Encrypted {
         val iv = ByteArray(12).also { SecureRandom().nextBytes(it) }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
