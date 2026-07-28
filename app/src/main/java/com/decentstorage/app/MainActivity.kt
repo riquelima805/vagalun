@@ -55,7 +55,6 @@ import java.io.File
 import java.security.SecureRandom
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.graphics.asImageBitmap
-import com.decentstorage.app.network.webrtc.TurnCredentialsFetcher
 
 
 object VagalunColors {
@@ -87,7 +86,6 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var prefs: SharedPreferences
 
-    
     private var registry: GossipRegistry? = null
     private var shardServer: ShardServer? = null
     private var discovery: PeerDiscovery? = null
@@ -113,7 +111,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         prefs = getSharedPreferences("decentstorage", MODE_PRIVATE)
         selfCapacityBytes = prefs.getLong("quotaBytes", selfCapacityBytes)
-       
         
         selfCapacityBytes = ensureQuotaWithinPhysicalLimits(selfCapacityBytes)
         selfSignalingUrl = prefs.getString("signalingUrl", "") ?: ""
@@ -130,13 +127,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-   
     private fun ensureQuotaWithinPhysicalLimits(requested: Long): Long {
         val maxOfferable = DeviceStorage.maxOfferableBytes(this)
         return requested.coerceAtMost(maxOfferable).coerceAtLeast(1L * 1024 * 1024) 
     }
-
-    
 
     private fun ensureEngineStarted(seedPhrase: String, onReady: (walletAddr: String) -> Unit, onLog: (String) -> Unit) {
         if (registry != null) return
@@ -168,10 +162,8 @@ class MainActivity : ComponentActivity() {
         wallet = SolanaWallet.fromSeedPhrase(seedBytes)
         anchorClient = AnchorStorageClient(wallet!!)
 
-        
         DailyClaimWorker.schedule(applicationContext)
 
-       
         if (selfSignalingUrl.isNotBlank()) {
             connectWan(selfSignalingUrl, onLog)
         } else {
@@ -182,44 +174,32 @@ class MainActivity : ComponentActivity() {
         onReady(wallet!!.publicKey.toString())
     }
 
-    
     private fun connectWan(signalingUrl: String, onLog: (String) -> Unit) {
-    val nodeId = selfNodeId ?: return
-    disconnectWan()
+        val nodeId = selfNodeId ?: return
+        disconnectWan()
 
-    val reqHandler = ShardRequestHandler(nodeId, selfCapacityBytes, selfDataDir!!, applicationContext) { gossipPayload ->
-        registry?.handleIncomingGossip(gossipPayload) ?: JSONObject()
+        val reqHandler = ShardRequestHandler(nodeId, selfCapacityBytes, selfDataDir!!, applicationContext) { gossipPayload ->
+            registry?.handleIncomingGossip(gossipPayload) ?: JSONObject()
+        }
+        val sc = SignalingClient(signalingUrl, nodeId, onSignal = { _, _ -> }) { connected ->
+            onLog(if (connected) "Signaling conectado (WAN ativa)" else "Signaling desconectado")
+        }
+        signalingClient = sc
+
+        // O TURN foi removido - agora usamos apenas STUN público e (futuramente) Relay
+        val mgr = WebRtcManager(
+            context = this,
+            signalingClient = sc,
+            selfNodeId = nodeId,
+            requestHandler = reqHandler,
+            onTransportReady = { peerId, transport -> registry?.attachWanTransport(peerId, transport) },
+            onTransportClosed = { peerId -> registry?.detachWanTransport(peerId) },
+            iceServers = WebRtcManager.defaultIceServers()
+        )
+        webRtcManager = mgr
+        sc.onSignal = { from, payload -> mgr.handleSignal(from, payload) }
+        sc.connect()
     }
-    val sc = SignalingClient(signalingUrl, nodeId, onSignal = { _, _ -> }) { connected ->
-        onLog(if (connected) "Signaling conectado (WAN ativa)" else "Signaling desconectado")
-    }
-    signalingClient = sc
-
-    val iceServersUrl = signalingUrl
-        .replace("wss://", "https://")
-        .replace("ws://", "http://")
-        .trimEnd('/') + "/ice-servers"
-
-    val iceServers = try {
-        TurnCredentialsFetcher.fetch(iceServersUrl)
-    } catch (e: Exception) {
-        onLog("Falha ao buscar TURN (${e.message}), usando só STUN")
-        WebRtcManager.defaultIceServers()
-    }
-
-    val mgr = WebRtcManager(
-        context = this,
-        signalingClient = sc,
-        selfNodeId = nodeId,
-        requestHandler = reqHandler,
-        onTransportReady = { peerId, transport -> registry?.attachWanTransport(peerId, transport) },
-        onTransportClosed = { peerId -> registry?.detachWanTransport(peerId) },
-        iceServers = iceServers
-    )
-    webRtcManager = mgr
-    sc.onSignal = { from, payload -> mgr.handleSignal(from, payload) }
-    sc.connect()
-}
 
     private fun disconnectWan() {
         webRtcManager?.disconnectAll()
@@ -233,7 +213,6 @@ class MainActivity : ComponentActivity() {
         pickFile.launch("*/*")
     }
 
-   
     @Composable
     fun VagalunApp() {
         val navController = rememberNavController()
@@ -1005,7 +984,7 @@ fun WalletScreen(
     ) {
         Text("Carteira", color = VagalunColors.textPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
 
-       
+        
         Card(colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard), shape = RoundedCornerShape(18.dp)) {
             Column(Modifier.padding(18.dp)) {
                 Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
