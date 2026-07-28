@@ -5,18 +5,7 @@ import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import java.util.concurrent.ConcurrentHashMap
 
-/**
- * Descoberta de peers SEM nenhum servidor central: cada dispositivo anuncia a si mesmo
- * via NSD (mDNS/Bonjour, já embutido no Android) na rede local, e escuta os anúncios
- * dos outros. Isso substitui, na LAN, o /register + /nodes do coordinator.js.
- *
- * LIMITAÇÃO HONESTA: NSD só enxerga peers na mesma rede local (Wi-Fi/hotspot).
- * Pra funcionar pela internet (dois celulares em redes diferentes), todo sistema P2P
- * real (BitTorrent, IPFS/libp2p) depende de algum mecanismo de rendezvous/bootstrap —
- * não existe "P2P pela internet com zero infraestrutura" de verdade, por causa de NAT.
- * Ver BootstrapPeerList.kt para a estratégia usada aqui pra WAN (minimiza, não elimina,
- * a dependência de infraestrutura fixa).
- */
+
 class PeerDiscovery(private val context: Context, private val serviceType: String = "_decentstorage._tcp.") {
 
     data class Peer(val nodeId: String, val host: String, val port: Int, var lastSeen: Long = System.currentTimeMillis())
