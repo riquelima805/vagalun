@@ -737,6 +737,16 @@ fun MediaViewerScreen(
 }
 
 @Composable
+fun BuyPackageButton(label: String, enabled: Boolean, onClick: () -> Unit) {
+    Button(
+        enabled = enabled,
+        onClick = onClick,
+        colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.bgCard2),
+        modifier = Modifier.fillMaxWidth().height(48.dp)
+    ) { Text("Comprar $label", color = VagalunColors.neonGreen) }
+}
+
+@Composable
 fun VideoPlayerFromBytes(bytes: ByteArray, fileName: String) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val tempFile = remember(bytes) {
@@ -1043,20 +1053,16 @@ fun WalletScreen(
 
         
         Card(colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard), shape = RoundedCornerShape(18.dp)) {
-            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Comprar espaço extra", color = VagalunColors.textPrimary, fontWeight = FontWeight.Bold)
-                Text("Paga on-chain via purchase_tier, direto no contrato.", color = VagalunColors.textSecondary, fontSize = 11.sp)
+    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("Comprar espaço extra", color = VagalunColors.textPrimary, fontWeight = FontWeight.Bold)
+        Text("Paga on-chain via purchase_tier, direto no contrato.", color = VagalunColors.textSecondary, fontSize = 11.sp)
 
-                @Composable
-fun packageButton(label: String, gb: Long) {
-    Button(
-        enabled = !busy,
-        onClick = {
+        fun buy(label: String, gb: Long) {
             onLog("Cliquei em Comprar $label")
             busy = true
             scope.launch(Dispatchers.IO) {
                 try {
-                    onLog("Chamando purchaseTier, anchorClient é null? ${anchorClient == null}")
+                    onLog("anchorClient é null? ${anchorClient == null}")
                     val sig = anchorClient?.purchaseTier(gb)
                     onLog("Pacote $label comprado. Assinatura: $sig")
                     refreshBalance()
@@ -1066,19 +1072,13 @@ fun packageButton(label: String, gb: Long) {
                     busy = false
                 }
             }
-        },
-        colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.bgCard2),
-        modifier = Modifier.fillMaxWidth().height(48.dp)
-    ) { Text("Comprar $label", color = VagalunColors.neonGreen) }
-}
-
-packageButton("+50 GB", 50L)
-packageButton("+100 GB", 100L)
-packageButton("+1 TB", 1000L)
-
-            }
-
         }
+
+        BuyPackageButton("+50 GB", !busy) { buy("+50 GB", 50L) }
+        BuyPackageButton("+100 GB", !busy) { buy("+100 GB", 100L) }
+        BuyPackageButton("+1 TB", !busy) { buy("+1 TB", 1000L) }
+    }
+}
 
         // ---- Seed phrase ----
         Card(colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard), shape = RoundedCornerShape(18.dp)) {
