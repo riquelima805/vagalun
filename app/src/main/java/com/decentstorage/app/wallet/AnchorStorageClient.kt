@@ -15,7 +15,7 @@ class AnchorStorageClient(
     private val programId = PublicKey(programIdBase58)
     private val programIdBytes = Base58.decode(programIdBase58)
     private val treasury = PublicKey(treasuryBase58)
-    private val systemProgram = PublicKey("11111111111111111111111111111111111111111")
+    private val systemProgram = PublicKey("11111111111111111111111111111111")
 
     private fun ownerPubkey(): PublicKey = wallet.publicKey
     private fun ownerBytes(): ByteArray = Base58.decode(wallet.publicKey.toBase58())
