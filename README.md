@@ -2,112 +2,110 @@
 
 <img src="./assets/logo.png" alt="Vagalun Logo" width="140"/>
 
-# 🟣 VAGALUN
+# VAGALUN
 
-### Armazenamento descentralizado, criptografado e pago via Solana
+### Decentralized, encrypted storage paid via Solana
 
 <img alt="status" src="https://img.shields.io/badge/status-devnet-8A2BE2?style=for-the-badge&labelColor=0B0E13">
-<img alt="platform" src="https://img.shields.io/badge/plataforma-Android-8A2BE2?style=for-the-badge&labelColor=0B0E13">
+<img alt="platform" src="https://img.shields.io/badge/platform-Android-8A2BE2?style=for-the-badge&labelColor=0B0E13">
 <img alt="blockchain" src="https://img.shields.io/badge/blockchain-Solana-8A2BE2?style=for-the-badge&logo=solana&labelColor=0B0E13">
-<img alt="license" src="https://img.shields.io/badge/licença-MIT-8A2BE2?style=for-the-badge&labelColor=0B0E13">
+<img alt="license" src="https://img.shields.io/badge/license-MIT-8A2BE2?style=for-the-badge&labelColor=0B0E13">
 
 <br/>
 
 <a href="./assets/vagalun.apk">
-  <img alt="Download APK" src="https://img.shields.io/badge/⬇️_BAIXAR_APK-00FFA3?style=for-the-badge&labelColor=0B0E13&color=8A2BE2">
+  <img alt="Download APK" src="https://img.shields.io/badge/⬇️_DOWNLOAD_APK-00FFA3?style=for-the-badge&labelColor=0B0E13&color=8A2BE2">
 </a>
 
 </div>
 
 ---
 
-**O uqe e nosso app vagalun ?*
-O **Vagalun** é um app Android de armazenamento em nuvem **descentralizado**: em vez de guardar seus arquivos num servidor de uma empresa, eles são **fragmentados, criptografados e distribuídos entre os celulares de outros usuários da rede** — e você também pode ceder espaço livre do seu aparelho para armazenar pedaços de arquivos de outras pessoas e ser pago por isso, em SOL, direto na sua carteira.
+**What is Vagalun?**
+**Vagalun** is a **decentralized** cloud storage Android app: instead of storing your files on a company's server, they are **fragmented, encrypted, and distributed across other users' phones on the network** — and you can also lend free space on your own device to store pieces of other people's files and get paid for it, in SOL, straight to your wallet.
 
-Todo usuário começa com **500 MB gratuitos** (o "tier" free), que podem ser ampliados comprando espaço extra ou contribuindo com armazenamento para a rede (tier gratuito ganho por prestar serviço).
+Every user starts with **500 MB free** (the "free" tier), which can be expanded by purchasing extra space or by contributing storage to the network (free tier earned by providing a service).
 
 ---
 
-##  Como funciona por dentro
+## How it works under the hood
 
-### 1. Fragmentação com Reed-Solomon
+### 1. Reed-Solomon fragmentation
 
-Antes de sair do seu aparelho, cada arquivo é dividido em **shards** usando codificação Reed-Solomon.
+Before it leaves your device, each file is split into **shards** using Reed-Solomon encoding.
 
 ```
-   arquivo original
+   original file
          │
    ┌─────┴─────┐
    │ Reed-Solomon (K=6, M=4) │
    └─────┬─────┘
          │
-   10 shards no total (N = K + M)
+   10 shards total (N = K + M)
          │
  ┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
- │ 1 │ 2 │ 3 │ 4 │ 5 │ 6 │ 7 │ 8 │ 9 │10 │  → 10 nodes diferentes
+ │ 1 │ 2 │ 3 │ 4 │ 5 │ 6 │ 7 │ 8 │ 9 │10 │  → 10 different nodes
  └───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
-   6 shards de dado   +   4 shards de paridade
+   6 data shards   +   4 parity shards
 ```
 
-Isso significa que **qualquer 6 dos 10 shards** são suficientes para reconstruir o arquivo inteiro.
+This means **any 6 of the 10 shards** are enough to reconstruct the entire file.
 
-A rede monitora isso continuamente: se o número de cópias vivas de um arquivo cair perto do limite `K`, o próprio protocolo reconstrói o shard que faltou  e realoca ele automaticamente para outro node saudável, sem intervenção do dono do arquivo.
+The network monitors this continuously: if the number of live copies of a file drops close to the `K` threshold, the protocol itself reconstructs the missing shard and automatically reallocates it to another healthy node, with no intervention from the file owner.
 
-### 2. Criptografia ponta a ponta
+### 2. End-to-end encryption
 
-- Sua seed phrase gera, via SHA-256, uma **chave mestra** local.
-- Para cada arquivo, uma **chave derivada por HMAC-SHA256** é gerada a partir da chave mestra + ID do arquivo.
-- O conteúdo é cifrado com **AES-256-GCM** autenticado, com IV aleatório por arquivo **antes** de ser fatiado em shards.
-- Os nodes que armazenam os shards só enxergam bytes cifrados — nunca o conteúdo real, o nome do arquivo original nem a chave.
+- Your seed phrase generates, via SHA-256, a local **master key**.
+- For each file, a **key derived via HMAC-SHA256** is generated from the master key + file ID.
+- The content is encrypted with authenticated **AES-256-GCM**, with a random IV per file, **before** being split into shards.
+- The nodes storing the shards only ever see encrypted bytes — never the actual content, the original filename, or the key.
 
-### 3. Rede P2P (WebRTC + Gossip)
+### 3. P2P network (WebRTC + Gossip)
 
-- **Descoberta e sincronização de metadados**: protocolo de *gossip* — cada node troca periodicamente sua lista de peers conhecidos e os metadados dos arquivos com uma amostra aleatória de outros nodes, até a informação convergir pela rede inteira.
-- **Transporte de dados**: conexões diretas **WebRTC** (DataChannel) entre os celulares, usando apenas servidores **STUN públicos** (Google/Cloudflare) — sem depender de um servidor central para tráfego de arquivos.
-- **Sinalização**: um servidor leve em Node.js/WebSocket (incluso neste repo) faz apenas a "apresentação" inicial entre os peers (troca de offer/answer/ICE) para abrir o WebRTC direto.
-- **Fallback de Relay**: se dois nodes não conseguirem abrir conexão direta (NAT restritivo, sem TURN), o próprio servidor de sinalização passa a retransmitir os pedidos de shard como canal alternativo, para o arquivo nunca ficar inacessível.
+- **Metadata discovery and sync**: a *gossip* protocol — each node periodically exchanges its list of known peers and file metadata with a random sample of other nodes, until the information converges across the entire network.
+- **Data transport**: direct **WebRTC** connections (DataChannel) between phones, using only **public STUN servers** (Google/Cloudflare) — with no dependency on a central server for file traffic.
+- **Signaling**: a lightweight Node.js/WebSocket server (included in this repo) handles only the initial "introduction" between peers (offer/answer/ICE exchange) to open the direct WebRTC connection.
+- **Relay fallback**: if two nodes can't establish a direct connection (restrictive NAT, no TURN), the signaling server itself relays shard requests as an alternative channel, so the file never becomes inaccessible.
 
-### 4. Carteira Solana embutida
+### 4. Built-in Solana wallet
 
-O app deriva uma carteira Solana **Ed25519** diretamente da sua seed phrase (derivação SLIP-0010, caminho `m/44'/501'/0'/0'`, compatível com o padrão de carteiras Solana). Você pode consultar saldo, enviar SOL e comprar mais espaço, tudo sem sair do app.
-
----
-
-##  Modelo econômico — pague pelo uso, o node recebe
-
-O Vagalun **não cobra assinatura**. O modelo é *pay-as-you-go*, todo liquidado on-chain:
-
-1. **Ao guardar um arquivo pago**, você deposita SOL num **cofre (vault)** exclusivo daquele arquivo (`create_file_vault`), calculado por: `preço por GB/dia × N shards × dias de armazenamento`.
-2. Esse valor fica **retido em escrow no próprio vault** — não vai para nenhuma carteira da equipe.
-3. A cada época, os nodes que provam (via prova de Merkle) que ainda têm o shard intacto **recebem o pagamento direto do vault** (`submit_paid_claim`) — **o valor pago pelo arquivo vai 100% para os nodes que efetivamente armazenam os shards**, de forma proporcional ao tempo que guardam o dado.
-4. Se o dono do arquivo apagar antes do prazo, o saldo não usado do vault volta para ele (`withdraw_unused`).
-5. Quem não quer pagar pode contribuir com espaço livre do próprio aparelho para a rede e ganhar tier gratuito extra em troca (`register_free_contribution` / `report_free_tier_proof`).
-
-> Compra de tiers extras de armazenamento  é a única cobrança que vai para o tesouro do projeto — usada para manter o servidor de sinalização e o desenvolvimento do protocolo. **Todo o pagamento por hospedagem de arquivo em si vai para os nodes.**
+The app derives an **Ed25519** Solana wallet directly from your seed phrase (SLIP-0010 derivation, path `m/44'/501'/0'/0'`, compatible with the standard Solana wallet convention). You can check your balance, send SOL, and buy more space, all without leaving the app.
 
 ---
 
-## Endereços on-chain
+## Economic model — pay for usage, the node gets paid
 
-| Item | Endereço |
+Vagalun **charges no subscription**. The model is *pay-as-you-go*, all settled on-chain:
+
+1. **When you store a paid file**, you deposit SOL into a **vault** exclusive to that file (`create_file_vault`), calculated as: `price per GB/day × N shards × storage days`.
+2. That amount is **held in escrow in the vault itself** — it does not go to any team wallet.
+3. Each epoch, the nodes that prove (via a Merkle proof) they still hold the shard intact **get paid directly from the vault** (`submit_paid_claim`) — **100% of the amount paid for the file goes to the nodes that actually store the shards**, proportional to how long they hold the data.
+4. If the file owner deletes the file before the term ends, the unused vault balance is returned to them (`withdraw_unused`).
+5. Those who don't want to pay can contribute free space on their own device to the network and earn extra free tier in exchange (`register_free_contribution` / `report_free_tier_proof`).
+
+> Purchasing extra storage tiers is the only charge that goes to the project treasury — used to maintain the signaling server and protocol development. **All payment for file hosting itself goes to the nodes.**
+
+---
+
+## On-chain addresses
+
+| Item | Address |
 |---|---|
-| Program ID (contrato `storage_market`) | `FPpM2qXfpddkNxuUNqoF2UZg7MJiwF4Un96EWKhVecS6`
-| Carteira do tesouro / admin | `DDE7RZCCbipWuBGwZLYszBQuMxvDSEF59225YoFzkFba` |
-| Rede | Solana Devnet *(em testes — migração para Mainnet planejada após auditoria)* |
+| Program ID (`storage_market` contract) | `FPpM2qXfpddkNxuUNqoF2UZg7MJiwF4Un96EWKhVecS6` |
+| Treasury / admin wallet | `DDE7RZCCbipWuBGwZLYszBQuMxvDSEF59225YoFzkFba` |
+| Network | Solana Devnet *(in testing — migration to Mainnet planned after audit)* |
 
 ---
 
-##  Instalação
+## Installation
 
-1. Baixe o APK.
-2. Permita "instalar de fontes desconhecidas" no Android.
-3. Abra o app → crie um novo cofre ou restaure uma existente.
-4. Configure sua cota de espaço cedido e, se quiser rede WAN completa, o endereço do servidor de sinalização em **Config → Rede**.
+1. Download the APK.
+2. Allow "install from unknown sources" on Android.
+3. Open the app → create a new vault or restore an existing one.
+4. Set your contributed space quota and, if you want full WAN connectivity, the signaling server address in **Settings → Network**.
 
-> **Guarde sua seed phrase em papel, fora do celular.** Ela é a única forma de acesso à sua carteira e aos seus arquivos — o Vagalun não tem "recuperar senha".
+> **Keep your seed phrase on paper, off your phone.** It is the only way to access your wallet and your files — Vagalun has no "password recovery."
 
+## ⚠️ Notice
 
-
-## ⚠️ Aviso
-
-Projeto em **desenvolvimento ativo, rodando em Devnet**. Não deposite fundos reais nem armazene dados de produção até o contrato passar por auditoria e o deploy em mainnet ser confirmado.
+Project under **active development, running on Devnet**. Do not deposit real funds or store production data until the contract has been audited and the mainnet deployment is confirmed.
