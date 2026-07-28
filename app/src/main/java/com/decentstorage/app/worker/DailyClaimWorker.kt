@@ -14,33 +14,12 @@ import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
-/**
- * Roda 1x por dia (agendado via WorkManager, não um loop na Activity — assim continua
- * funcionando mesmo se o usuário fechar o app). Para cada shard que este dispositivo
- * ainda guarda fisicamente em disco (dataDir), gera um chunk_hash a partir do próprio
- * arquivo salvo e chama submit_paid_claim, cobrando a época corrente do vault.
- *
- * IMPORTANTE — placements.json: o app precisa persistir, junto de cada shard salvo, os
- * metadados de qual (placement PDA, fileVault PDA) aquele shard pertence — isso não
- * existia antes (só vivia em memória no GossipRegistry). Este worker assume um arquivo
- * `placements.json` dentro do dataDir no formato:
- *   [{"shardKey":"<fileId>_<idx>","placement":"<pda base58>","fileVault":"<pda base58>"}]
- * Se seu fluxo de upload/registro ainda não grava esse arquivo, adicione a gravação em
- * StorageClient.uploadFile / AnchorStorageClient.registerPlacement antes de confiar
- * neste worker em produção.
- *
- * A prova de Merkle real (merkle_proof) depende da árvore completa do shard, que também
- * precisa ser persistida no upload (hoje só o merkle_root vai para o contrato). Até isso
- * existir, este worker manda `merkleProof = emptyList()` — funciona apenas se o shard for
- * a única folha (árvore de 1 nível); para redundância k/n > 1 é preciso salvar a árvore
- * inteira no upload e reconstituir o caminho aqui.
- */
 class DailyClaimWorker(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
 
     companion object {
         private const val UNIQUE_WORK_NAME = "daily_claim"
 
-        /** Chame uma vez, no início do app (ex: dentro de ensureEngineStarted). */
+       
         fun schedule(context: Context) {
             val request = PeriodicWorkRequestBuilder<DailyClaimWorker>(24, TimeUnit.HOURS).build()
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
@@ -67,7 +46,7 @@ class DailyClaimWorker(appContext: Context, params: WorkerParameters) : Coroutin
 
             val dataDir = File(applicationContext.filesDir, "shards")
             val placementsFile = File(dataDir, "placements.json")
-            if (!placementsFile.exists()) return Result.success() // nada registrado ainda
+            if (!placementsFile.exists()) return Result.success() 
 
             val arr = org.json.JSONArray(placementsFile.readText())
             var failures = 0
@@ -94,7 +73,7 @@ class DailyClaimWorker(appContext: Context, params: WorkerParameters) : Coroutin
 
         val safe = shardKey.replace(Regex("[^a-zA-Z0-9_-]"), "")
         val shardFile = File(dataDir, "$safe.shard")
-        if (!shardFile.exists()) return // não guardamos mais esse shard — não temos como provar posse, não reclama
+        if (!shardFile.exists()) return 
 
         val chunkHash = sha256(shardFile.readBytes())
 
@@ -103,7 +82,7 @@ class DailyClaimWorker(appContext: Context, params: WorkerParameters) : Coroutin
             fileVault = fileVaultPda,
             chunkIndex = 0,
             chunkHash = chunkHash,
-            merkleProof = emptyList() // ver nota de classe: só válido pra árvore de 1 folha
+            merkleProof = emptyList() 
         )
     }
 }
