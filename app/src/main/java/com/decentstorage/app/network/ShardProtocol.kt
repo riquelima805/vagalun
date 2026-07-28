@@ -5,18 +5,7 @@ import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.nio.charset.StandardCharsets
 
-/**
- * Protocolo binário mínimo pra falar shard-a-shard entre dois dispositivos,
- * sem depender de HTTP/Express (isso é o que rodava em storageNode.js).
- * Framing: [4 bytes tamanho big-endian][payload UTF-8/bytes].
- *
- * Mensagens (JSON no "header", igual um Content-Type + rota antigos):
- *   PUT_SHARD   { op: "put", shardKey } + payload binário do shard em seguida
- *   GET_SHARD   { op: "get", shardKey }               -> resposta: { ok } + payload (se ok)
- *   DELETE_SHARD{ op: "delete", shardKey }            -> resposta: { ok }
- *   CHALLENGE   { op: "challenge", shardKey, nonce }  -> resposta: { ok, proof }
- *   STATUS      { op: "status" }                      -> resposta: { nodeId, capacityBytes, usedBytes, freeBytes }
- */
+
 object ShardProtocol {
 
     fun writeFrame(out: DataOutputStream, bytes: ByteArray) {
