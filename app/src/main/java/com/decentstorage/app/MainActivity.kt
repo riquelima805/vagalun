@@ -235,11 +235,26 @@ class MainActivity : ComponentActivity() {
             scope.launch {
                 withContext(Dispatchers.IO) {
                     try {
+                       
                         ensureEngineStarted(seedPhrase, onReady = { addr ->
                             walletAddress = addr
                         }, onLog = { log(it) })
+                        
+                        
+                        log("Verificando/Inicializando conta on-chain...")
+                        val sig = anchorClient?.initAccount()
+                        
+                        if (sig != null && sig.startsWith("ERRO")) {
+                           
+                            log("Conta já inicializada ou saldo de SOL insuficiente.")
+                        } else {
+                            log("Conta on-chain criada com sucesso! Sig: $sig")
+                        }
+
+                        
                         startedAt = System.currentTimeMillis()
                         nodeActive = true
+                        
                     } catch (e: Exception) {
                         log("Erro ao iniciar: ${e.message}")
                     }
@@ -467,7 +482,7 @@ fun DashboardScreen(
             Text("VAGALUN", color = VagalunColors.neonGreen, fontSize = 24.sp, fontWeight = FontWeight.Bold)
         }
 
-        // ---- Status do nó ----
+        
         Card(
             colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard),
             shape = RoundedCornerShape(20.dp),
@@ -499,7 +514,7 @@ fun DashboardScreen(
             }
         }
 
-        // ---- Estatísticas de rede (peers e uptime são reais; SOL do dia vem da carteira, ver aba Carteira) ----
+        
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             StatChip(Modifier.weight(1f), " $peersCount", "Nodes ativos")
             StatChip(Modifier.weight(1f), formatUptime(uptimeMs), "uptime")
@@ -525,7 +540,7 @@ fun DashboardScreen(
             Text("Ver meus arquivos", color = Color.Black, fontWeight = FontWeight.Bold)
         }
 
-        // ---- Painel de log (mostra o que estava só sendo gravado internamente antes) ----
+        
         if (logLines.isNotEmpty()) {
             Card(
                 colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard),
@@ -1097,7 +1112,7 @@ fun WalletScreen(
     }
 }
 
-        // ---- Seed phrase ----
+        
         Card(colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard), shape = RoundedCornerShape(18.dp)) {
             Column(Modifier.padding(18.dp)) {
                 Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
