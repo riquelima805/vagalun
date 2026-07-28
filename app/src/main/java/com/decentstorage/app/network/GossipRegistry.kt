@@ -9,20 +9,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlin.random.Random
 
-/**
- * Substitui o coordinator.js — mas em vez de um servidor central único, CADA peer roda
- * a sua própria cópia deste registro. Peers trocam entre si (gossip) o que sabem sobre:
- *   1) outros peers (host/porta/score/vivo-ou-não)
- *   2) arquivos e seus placements (quem guarda qual shard de qual arquivo)
- * e cada peer roda, independentemente, o mesmo laço de:
- *   detectar shard sumido (peer não responde) -> reconstruir a partir de K sobreviventes
- *   -> realocar num peer saudável com espaço livre.
- *
- * TRADE-OFF HONESTO: isso é "eventual consistency" — dois peers podem discordar por um
- * tempo sobre o estado da rede até o próximo ciclo de gossip convergir. Pra um MVP/demo
- * isso é aceitável; produção séria evoluiria isso pra algo tipo CRDT ou uma DHT real
- * (Kademlia), que é o que o README do protótipo em Node já apontava como próximo passo.
- */
+
 class GossipRegistry(
     val selfNodeId: String,
     val selfHost: String,
@@ -38,13 +25,10 @@ class GossipRegistry(
         var lastSeen: Long = System.currentTimeMillis(),
         var alive: Boolean = true,
         var freeBytes: Long = 0,
-        // setado pelo WebRtcManager quando existe um DataChannel WEbRTC aberto com esse peer
-        // (peer achado pela WAN, via BootstrapPeerList, não na mesma LAN)
+        
         var webrtcTransport: Transport? = null
     ) {
-        /** LAN usa TCP direto (host/port reais na mesma rede); WAN usa o DataChannel WebRTC
-         *  quando existe um aberto. Todo o resto do GossipRegistry/StorageClient só fala com
-         *  essa propriedade — não precisa saber qual dos dois está em uso. */
+        
         val transport: Transport
             get() = webrtcTransport ?: TcpTransport(host, port)
     }
@@ -79,9 +63,7 @@ class GossipRegistry(
         }
     }
 
-    /** Chamado pelo WebRtcManager quando um DataChannel WAN com esse peer abre.
-     *  Se o peer ainda não era conhecido (veio só do BootstrapPeerList), cria a entrada
-     *  com host/port "vestigiais" — WAN não fala TCP direto, todo tráfego passa pelo transport. */
+   
     fun attachWanTransport(nodeId: String, transport: Transport) {
         if (nodeId == selfNodeId) return
         peers.compute(nodeId) { _, existing ->
@@ -93,8 +75,7 @@ class GossipRegistry(
         }
     }
 
-    /** Chamado quando o DataChannel WAN cai — não derruba o peer da lista (pode ter voltado
-     *  a responder via LAN, ou reconectar depois), só tira o transporte WebRTC. */
+  
     fun detachWanTransport(nodeId: String) {
         peers[nodeId]?.webrtcTransport = null
     }
@@ -107,13 +88,13 @@ class GossipRegistry(
         peers[nodeId]?.let { it.score = (it.score + delta).coerceIn(0, 100) }
     }
 
-    /** Escolhe os melhores N peers vivos com espaço livre suficiente (score desc, espaço livre desc). */
+    
     fun bestPeersForUpload(n: Int, shardSizeHint: Long): List<PeerInfo> =
         peers.values.filter { it.alive && it.freeBytes >= shardSizeHint }
             .sortedWith(compareByDescending<PeerInfo> { it.score }.thenByDescending { it.freeBytes })
             .take(n)
 
-    /** Roda em loop: 1) checa saúde dos peers conhecidos  2) faz gossip com alguns deles  3) re-replica se preciso. */
+  
     fun start() {
         executor.scheduleWithFixedDelay({ safeRun { healthCheck() } }, 0, 4, TimeUnit.SECONDS)
         executor.scheduleWithFixedDelay({ safeRun { gossipRound() } }, 1, 6, TimeUnit.SECONDS)
@@ -141,7 +122,7 @@ class GossipRegistry(
         }
     }
 
-    /** Manda um resumo do que este peer sabe pra alguns peers aleatórios, e recebe o resumo deles de volta. */
+  
     private fun gossipRound() {
         val sample = peers.values.filter { it.alive }.shuffled().take(3)
         for (peer in sample) {
@@ -154,7 +135,7 @@ class GossipRegistry(
         }
     }
 
-    /** Chamado pelo ShardServer quando outro peer nos manda um gossip (handler passado no construtor do ShardServer). */
+   
     fun handleIncomingGossip(payload: JSONObject): JSONObject {
         mergePeers(payload.optJSONArray("peers") ?: JSONArray())
         mergeFiles(payload.optJSONArray("files") ?: JSONArray())
@@ -198,7 +179,7 @@ class GossipRegistry(
         for (i in 0 until arr.length()) {
             val o = arr.getJSONObject(i)
             val fileId = o.getString("fileId")
-            if (files.containsKey(fileId)) continue // já conhecemos — não sobrescreve (metadado é imutável após upload)
+            if (files.containsKey(fileId)) continue 
             val placements = mutableListOf<Placement>()
             val pArr = o.getJSONArray("placements")
             for (j in 0 until pArr.length()) {
@@ -213,7 +194,7 @@ class GossipRegistry(
         }
     }
 
-    /** Equivalente a reReplicateIfNeeded() do coordinator.js, rodando localmente em cada peer. */
+   
     private fun reReplicateIfNeeded() {
         for (file in files.values) {
             val alivePlacements = file.placements.filter { peers[it.nodeId]?.alive == true || it.nodeId == selfNodeId }
@@ -228,7 +209,7 @@ class GossipRegistry(
                 .toMutableList()
 
             for (shardIndex in missingShardIndices) {
-                val target = candidates.removeFirstOrNull() ?: continue // "rede está cheia" — sem candidato, tenta de novo no próximo ciclo
+                val target = candidates.removeFirstOrNull() ?: continue
                 try {
                     migrateShard(file, shardIndex, target)
                     file.placements.removeAll { it.shardIndex == shardIndex }
@@ -250,7 +231,7 @@ class GossipRegistry(
         val fetched = mutableListOf<AvailableShard>()
         for (p in alivePlacements.take(file.k)) {
             val bytes = if (p.nodeId == selfNodeId) {
-                null // dono normalmente não guarda os próprios shards; ajuste se seu fluxo permitir isso
+                null 
             } else {
                 val peer = peers[p.nodeId] ?: continue
                 peer.transport.getShard(shardKeyFor(file.fileId, p.shardIndex))
@@ -264,6 +245,6 @@ class GossipRegistry(
         val missingShardData = reEncoded.shards[shardIndex]
 
         val ok = target.transport.putShard(shardKeyFor(file.fileId, shardIndex), missingShardData)
-        require(ok) { "falha ao enviar shard reconstruído pro peer alvo" }
+        require(ok) { "falha ao enviar shard reconstruído" }
     }
 }
