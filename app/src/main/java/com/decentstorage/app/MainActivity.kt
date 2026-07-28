@@ -307,7 +307,8 @@ class MainActivity : ComponentActivity() {
                         walletAddress = walletAddress,
                         capacityGb = quotaGb,
                         usedFiles = files.size,
-                        onNavFiles = { navController.navigate("files") }
+                        onNavFiles = { navController.navigate("files") },
+                        logLines = logLines
                     )
                 }
                 composable("files") {
@@ -471,7 +472,8 @@ fun DashboardScreen(
     walletAddress: String,
     capacityGb: Int,
     usedFiles: Int,
-    onNavFiles: () -> Unit
+    onNavFiles: () -> Unit,
+    logLines: List<String> = emptyList()
 ) {
     Column(
         Modifier
@@ -542,6 +544,33 @@ fun DashboardScreen(
             modifier = Modifier.fillMaxWidth().height(52.dp)
         ) {
             Text("Ver meus arquivos", color = Color.Black, fontWeight = FontWeight.Bold)
+        }
+
+        // ---- Painel de log (mostra o que estava só sendo gravado internamente antes) ----
+        if (logLines.isNotEmpty()) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(
+                        "Log do sistema",
+                        color = VagalunColors.textSecondary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    logLines.take(15).forEach { line ->
+                        Text(
+                            line,
+                            color = VagalunColors.textSecondary,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(vertical = 2.dp)
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -1064,7 +1093,16 @@ fun WalletScreen(
                 try {
                     onLog("anchorClient é null? ${anchorClient == null}")
                     val sig = anchorClient?.purchaseTier(gb)
-                    onLog("Pacote $label comprado. Assinatura: $sig")
+                    if (sig != null && sig.startsWith("ERRO")) {
+                        // sendSingle() do AnchorStorageClient nunca propaga exceção — sempre
+                        // retorna uma String. Se começar com "ERRO", a transação NUNCA foi
+                        // confirmada on-chain (por isso o saldo não muda). Aqui mostramos a
+                        // causa real, que normalmente é conta inexistente (market_config ou
+                        // user_account nunca inicializados) ou programa não implantado nesse RPC.
+                        onLog("Falha real na compra de $label: $sig")
+                    } else {
+                        onLog("Pacote $label comprado. Assinatura: $sig")
+                    }
                     refreshBalance()
                 } catch (e: Exception) {
                     onLog("Erro na compra de $label: ${e.message}")
