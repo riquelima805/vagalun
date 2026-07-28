@@ -52,8 +52,7 @@ dependencies {
 
     implementation("com.google.android.material:material:1.12.0")
 
-    // Player de vídeo nativo (buffer sequencial via WebRTC/StorageClient já hoje passa
-    // por um arquivo temporário local no cache do app; ver VideoPlayerFromBytes)
+   
     implementation("com.google.android.exoplayer:exoplayer-core:2.19.1")
     implementation("com.google.android.exoplayer:exoplayer-ui:2.19.1")
 implementation("androidx.work:work-runtime-ktx:2.9.0")
