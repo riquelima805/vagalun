@@ -33,7 +33,7 @@ class SignalingClient(
                 val msg = JSONObject(text)
                 when (msg.optString("type")) {
                     "signal" -> onSignal(msg.getString("from"), msg.getJSONObject("payload"))
-                    "error" -> { /* peer offline, etc — o chamador decide o que fazer (retry, avisar usuário) */ }
+                    "error" -> {  }
                 }
             }
 
@@ -47,7 +47,7 @@ class SignalingClient(
         })
     }
 
-    /** Envia um SDP offer/answer ou candidato ICE pro nó de destino, via relay do signaling. */
+   
     fun sendSignal(toNodeId: String, payload: JSONObject) {
         webSocket?.send(
             JSONObject()
