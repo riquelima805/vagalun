@@ -11,7 +11,7 @@ import org.sol4k.instruction.BaseInstruction
 class AnchorStorageClient(
     private val wallet: SolanaWallet,
     programIdBase58: String = "FPpM2qXfpddkNxuUNqoF2UZg7MJiwF4Un96EWKhVecS6",
-    treasuryBase58: String = "FPpM2qXfpddkNxuUNqoF2UZg7MJiwF4Un96EWKhVecS6"
+    treasuryBase58: String = "DDE7RZCCbipWuBGwZLYszBQuMxvDSEF59225YoFzkFba"
 ) {
     private val programId = PublicKey(programIdBase58)
     private val programIdBytes = Base58.decode(programIdBase58)
