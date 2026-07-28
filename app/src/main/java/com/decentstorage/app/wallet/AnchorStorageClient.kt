@@ -26,7 +26,6 @@ class AnchorStorageClient(
         return PublicKey(bytes)
     }
 
-
     fun marketConfigPda(): PublicKey = pda(listOf("market_config".toByteArray()))
     fun userAccountPda(owner: PublicKey = ownerPubkey()): PublicKey =
         pda(listOf("user".toByteArray(), Base58.decode(owner.toBase58())))
@@ -40,35 +39,34 @@ class AnchorStorageClient(
         pda(listOf("free".toByteArray(), Base58.decode(provider.toBase58()), contentIdBytes32, byteArrayOf(shardIndex.toByte())))
 
     private suspend fun sendSingle(instructionData: ByteArray, accounts: List<AccountMeta>): String {
-    return try {
-        val instruction = BaseInstruction(instructionData, accounts, programId)
-        val blockhash = wallet.connection.getLatestBlockhash()
+        return try {
+            val instruction = BaseInstruction(instructionData, accounts, programId)
+            val blockhash = wallet.connection.getLatestBlockhash()
 
-        // Usa VersionedTransaction (mesma classe que já funciona no transferSol),
-        // ao invés da classe legada Transaction, que tem um bug de buffer
-        // que estoura quando a instrução tem várias contas (BufferOverflowException).
-        val message = TransactionMessage.newMessage(wallet.publicKey, blockhash, instruction)
-        val tx = VersionedTransaction(message)
+            // Usa VersionedTransaction (mesma classe que já funciona no transferSol),
+            // ao invés da classe legada Transaction, que tem um bug de buffer
+            // que estoura quando a instrução tem várias contas (BufferOverflowException).
+            val message = TransactionMessage.newMessage(wallet.publicKey, blockhash, instruction)
+            val tx = VersionedTransaction(message)
 
-        tx.sign(wallet.keypair)
-        wallet.connection.sendTransaction(tx)
+            tx.sign(wallet.keypair)
+            wallet.connection.sendTransaction(tx)
 
-    } catch (e: Exception) {
-        e.printStackTrace()
-        "ERRO: ${e.message}"
+        } catch (e: Exception) {
+            e.printStackTrace()
+            "ERRO: ${e.message}"
+        }
     }
-}
     
     suspend fun initAccount(): String {
         val data = PdaUtils.instructionDiscriminator("init_account")
         val accounts = listOf(
             AccountMeta.writable(userAccountPda()),
             AccountMeta.signerAndWritable(ownerPubkey()),
-            AccountMeta.writable(systemProgram)
+            AccountMeta(systemProgram, false, false) // <-- CORRIGIDO
         )
         return sendSingle(data, accounts)
     }
-
     
     suspend fun purchaseTier(extraGb: Long): String {
         val payload = ByteArrayBuilder()
@@ -80,11 +78,10 @@ class AnchorStorageClient(
             AccountMeta.writable(marketConfigPda()),
             AccountMeta.signerAndWritable(ownerPubkey()),
             AccountMeta.writable(treasury),
-            AccountMeta.writable(systemProgram)
+            AccountMeta(systemProgram, false, false) // <-- CORRIGIDO
         )
         return sendSingle(payload, accounts)
     }
-
    
     suspend fun createFileVault(fileIdHex: String, shardSizeBytes: Long, k: Int, n: Int, days: Int): Pair<String, PublicKey> {
         val fileIdBytes = PdaUtils.fileIdHexToBytes32(fileIdHex)
@@ -101,12 +98,11 @@ class AnchorStorageClient(
             AccountMeta.writable(vaultPda),
             AccountMeta.writable(marketConfigPda()),
             AccountMeta.signerAndWritable(ownerPubkey()),
-            AccountMeta.writable(systemProgram)
+            AccountMeta(systemProgram, false, false) // <-- CORRIGIDO
         )
         val sig = sendSingle(payload, accounts)
         return sig to vaultPda
     }
-
     
     suspend fun registerPlacement(fileVault: PublicKey, shardIndex: Int, merkleRoot: ByteArray, provider: PublicKey): String {
         val payload = ByteArrayBuilder()
@@ -119,11 +115,10 @@ class AnchorStorageClient(
             AccountMeta.writable(fileVault),
             AccountMeta.signerAndWritable(ownerPubkey()),
             AccountMeta.writable(provider),
-            AccountMeta.writable(systemProgram)
+            AccountMeta(systemProgram, false, false) // <-- CORRIGIDO
         )
         return sendSingle(payload, accounts)
     }
-
    
     suspend fun submitPaidClaim(
         placement: PublicKey,
@@ -143,11 +138,10 @@ class AnchorStorageClient(
             AccountMeta.writable(fileVault),
             AccountMeta.writable(providerRecordPda(ownerPubkey())),
             AccountMeta.signerAndWritable(ownerPubkey()), // aqui "owner" = o provider assinando
-            AccountMeta.writable(systemProgram)
+            AccountMeta(systemProgram, false, false) // <-- CORRIGIDO
         )
         return sendSingle(payload, accounts)
     }
-
     
     suspend fun withdrawUnused(fileVault: PublicKey): String {
         val payload = PdaUtils.instructionDiscriminator("withdraw_unused")
@@ -157,7 +151,6 @@ class AnchorStorageClient(
         )
         return sendSingle(payload, accounts)
     }
-
    
     suspend fun registerFreeContribution(
         contentIdHex: String, shardIndex: Int, shardSizeBytes: Long, merkleRoot: ByteArray, provider: PublicKey
@@ -174,7 +167,7 @@ class AnchorStorageClient(
             AccountMeta.writable(freeContributionPda(provider, contentIdBytes, shardIndex)),
             AccountMeta.signerAndWritable(ownerPubkey()),
             AccountMeta.writable(provider),
-            AccountMeta.writable(systemProgram)
+            AccountMeta(systemProgram, false, false) // <-- CORRIGIDO
         )
         return sendSingle(payload, accounts)
     }
@@ -193,18 +186,14 @@ class AnchorStorageClient(
             AccountMeta.writable(userAccountPda(ownerPubkey())),
             AccountMeta.writable(providerRecordPda(ownerPubkey())),
             AccountMeta.signerAndWritable(ownerPubkey()),
-            AccountMeta.writable(systemProgram)
+            AccountMeta(systemProgram, false, false) // <-- CORRIGIDO
         )
         return sendSingle(payload, accounts)
     }
-
-  
-
    
     suspend fun requestDevnetAirdrop(lamports: Long = 1_000_000_000L): String =
         wallet.connection.requestAirdrop(wallet.publicKey, lamports)
 }
-
 
 private class ByteArrayBuilder {
     private val out = java.io.ByteArrayOutputStream()
