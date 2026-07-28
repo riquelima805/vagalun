@@ -10,7 +10,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        jcenter() // Adiciona o JCenter para bibliotecas antigas (como a novacrypto 2019)
+        jcenter() 
         maven { url = uri("https://jitpack.io") }
     }
 }
