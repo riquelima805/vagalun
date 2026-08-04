@@ -9,7 +9,6 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.Executors
 
-
 class ShardServer(
     nodeId: String,
     private val port: Int,
@@ -56,6 +55,17 @@ class ShardServer(
                     }
                     "get" -> {
                         val (resp, payload) = requestHandler.handleGet(header.getString("shardKey"))
+                        ShardProtocol.writeJson(output, resp)
+                        if (resp.optBoolean("ok", false) && payload != null) {
+                            ShardProtocol.writeFrame(output, payload)
+                        }
+                    }
+                    "get_range" -> {
+                        val (resp, payload) = requestHandler.handleGetRange(
+                            header.getString("shardKey"),
+                            header.getLong("offset"),
+                            header.getInt("length")
+                        )
                         ShardProtocol.writeJson(output, resp)
                         if (resp.optBoolean("ok", false) && payload != null) {
                             ShardProtocol.writeFrame(output, payload)
