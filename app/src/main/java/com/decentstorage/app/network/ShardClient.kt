@@ -5,7 +5,6 @@ import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.net.Socket
 
-
 object ShardClient {
 
     private const val TIMEOUT_MS = 8000
@@ -33,6 +32,17 @@ object ShardClient {
         ShardProtocol.readFrame(input)
     }
 
+    fun getShardRange(host: String, port: Int, shardKey: String, offset: Long, length: Int): ByteArray? =
+        withConnection(host, port) { input, output ->
+            ShardProtocol.writeJson(
+                output,
+                JSONObject().put("op", "get_range").put("shardKey", shardKey).put("offset", offset).put("length", length)
+            )
+            val resp = ShardProtocol.readJson(input)
+            if (!resp.optBoolean("ok", false)) return@withConnection null
+            ShardProtocol.readFrame(input)
+        }
+
     fun deleteShard(host: String, port: Int, shardKey: String): Boolean = withConnection(host, port) { input, output ->
         ShardProtocol.writeJson(output, JSONObject().put("op", "delete").put("shardKey", shardKey))
         ShardProtocol.readJson(input).optBoolean("ok", false)
@@ -43,7 +53,6 @@ object ShardClient {
         val resp = ShardProtocol.readJson(input)
         if (!resp.optBoolean("ok", false)) null else resp.optString("proof")
     }
-
   
     fun gossip(host: String, port: Int, payload: JSONObject): JSONObject? = try {
         withConnection(host, port) { input, output ->
