@@ -7,8 +7,10 @@ import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
-import kotlin.random.Random
 
+object ShardKeys {
+    fun of(fileId: String, blockIndex: Int, shardIndex: Int) = "${fileId}_b${blockIndex}_s${shardIndex}"
+}
 
 class GossipRegistry(
     val selfNodeId: String,
@@ -28,12 +30,20 @@ class GossipRegistry(
         
         var webrtcTransport: Transport? = null
     ) {
-        
         val transport: Transport
             get() = webrtcTransport ?: TcpTransport(host, port)
     }
 
     data class Placement(val shardIndex: Int, val nodeId: String)
+
+    data class BlockMeta(
+        val blockIndex: Int,
+        val plainLength: Int,
+        val shardSize: Int,
+        val iv: String,
+        val authTag: String,
+        var placements: MutableList<Placement>
+    )
 
     data class FileMeta(
         val fileId: String,
@@ -41,12 +51,9 @@ class GossipRegistry(
         val k: Int,
         val m: Int,
         val n: Int,
-        val shardSize: Int,
-        val cipherLength: Int,
+        val blockSize: Int,
         val originalLength: Int,
-        val iv: String,
-        val authTag: String,
-        var placements: MutableList<Placement>
+        var blocks: MutableList<BlockMeta>
     )
 
     private val peers = ConcurrentHashMap<String, PeerInfo>()
@@ -63,7 +70,6 @@ class GossipRegistry(
         }
     }
 
-   
     fun attachWanTransport(nodeId: String, transport: Transport) {
         if (nodeId == selfNodeId) return
         peers.compute(nodeId) { _, existing ->
@@ -75,7 +81,6 @@ class GossipRegistry(
         }
     }
 
-  
     fun detachWanTransport(nodeId: String) {
         peers[nodeId]?.webrtcTransport = null
     }
@@ -88,13 +93,11 @@ class GossipRegistry(
         peers[nodeId]?.let { it.score = (it.score + delta).coerceIn(0, 100) }
     }
 
-    
     fun bestPeersForUpload(n: Int, shardSizeHint: Long): List<PeerInfo> =
         peers.values.filter { it.alive && it.freeBytes >= shardSizeHint }
             .sortedWith(compareByDescending<PeerInfo> { it.score }.thenByDescending { it.freeBytes })
             .take(n)
 
-  
     fun start() {
         executor.scheduleWithFixedDelay({ safeRun { healthCheck() } }, 0, 4, TimeUnit.SECONDS)
         executor.scheduleWithFixedDelay({ safeRun { gossipRound() } }, 1, 6, TimeUnit.SECONDS)
@@ -122,7 +125,6 @@ class GossipRegistry(
         }
     }
 
-  
     private fun gossipRound() {
         val sample = peers.values.filter { it.alive }.shuffled().take(3)
         for (peer in sample) {
@@ -135,7 +137,6 @@ class GossipRegistry(
         }
     }
 
-   
     fun handleIncomingGossip(payload: JSONObject): JSONObject {
         mergePeers(payload.optJSONArray("peers") ?: JSONArray())
         mergeFiles(payload.optJSONArray("files") ?: JSONArray())
@@ -161,15 +162,27 @@ class GossipRegistry(
     private fun serializeFiles(): JSONArray {
         val arr = JSONArray()
         for (f in files.values) {
-            val placementsArr = JSONArray()
-            for (p in f.placements) placementsArr.put(JSONObject().put("shardIndex", p.shardIndex).put("nodeId", p.nodeId))
+            val blocksArr = JSONArray()
+            for (b in f.blocks) {
+                val placementsArr = JSONArray()
+                for (p in b.placements) placementsArr.put(JSONObject().put("shardIndex", p.shardIndex).put("nodeId", p.nodeId))
+                
+                blocksArr.put(
+                    JSONObject()
+                        .put("blockIndex", b.blockIndex)
+                        .put("plainLength", b.plainLength)
+                        .put("shardSize", b.shardSize)
+                        .put("iv", b.iv)
+                        .put("authTag", b.authTag)
+                        .put("placements", placementsArr)
+                )
+            }
             arr.put(
                 JSONObject()
                     .put("fileId", f.fileId).put("fileName", f.fileName)
                     .put("k", f.k).put("m", f.m).put("n", f.n)
-                    .put("shardSize", f.shardSize).put("cipherLength", f.cipherLength).put("originalLength", f.originalLength)
-                    .put("iv", f.iv).put("authTag", f.authTag)
-                    .put("placements", placementsArr)
+                    .put("blockSize", f.blockSize).put("originalLength", f.originalLength)
+                    .put("blocks", blocksArr)
             )
         }
         return arr
@@ -179,54 +192,67 @@ class GossipRegistry(
         for (i in 0 until arr.length()) {
             val o = arr.getJSONObject(i)
             val fileId = o.getString("fileId")
-            if (files.containsKey(fileId)) continue 
-            val placements = mutableListOf<Placement>()
-            val pArr = o.getJSONArray("placements")
-            for (j in 0 until pArr.length()) {
-                val p = pArr.getJSONObject(j)
-                placements.add(Placement(p.getInt("shardIndex"), p.getString("nodeId")))
+            if (files.containsKey(fileId)) continue
+            
+            val blocks = mutableListOf<BlockMeta>()
+            val bArr = o.getJSONArray("blocks")
+            
+            for (j in 0 until bArr.length()) {
+                val b = bArr.getJSONObject(j)
+                val placements = mutableListOf<Placement>()
+                val pArr = b.getJSONArray("placements")
+                for (x in 0 until pArr.length()) {
+                    val p = pArr.getJSONObject(x)
+                    placements.add(Placement(p.getInt("shardIndex"), p.getString("nodeId")))
+                }
+                
+                blocks.add(
+                    BlockMeta(
+                        b.getInt("blockIndex"), b.getInt("plainLength"), b.getInt("shardSize"),
+                        b.getString("iv"), b.getString("authTag"), placements
+                    )
+                )
             }
+            
             files[fileId] = FileMeta(
                 fileId, o.getString("fileName"), o.getInt("k"), o.getInt("m"), o.getInt("n"),
-                o.getInt("shardSize"), o.getInt("cipherLength"), o.getInt("originalLength"),
-                o.getString("iv"), o.getString("authTag"), placements
+                o.getInt("blockSize"), o.getInt("originalLength"), blocks
             )
         }
     }
 
-   
     private fun reReplicateIfNeeded() {
         for (file in files.values) {
-            val alivePlacements = file.placements.filter { peers[it.nodeId]?.alive == true || it.nodeId == selfNodeId }
-            val missingCount = file.k + safetyMargin - alivePlacements.size
-            if (missingCount <= 0) continue
+            for (block in file.blocks) {
+                val alivePlacements = block.placements.filter { peers[it.nodeId]?.alive == true || it.nodeId == selfNodeId }
+                val missingCount = file.k + safetyMargin - alivePlacements.size
+                if (missingCount <= 0) continue
 
-            val missingShardIndices = (0 until file.n).filter { idx -> alivePlacements.none { it.shardIndex == idx } }
-            val busyNodeIds = file.placements.map { it.nodeId }.toSet()
-            val candidates = peers.values
-                .filter { it.alive && it.nodeId !in busyNodeIds && it.freeBytes >= file.shardSize }
-                .sortedByDescending { it.score }
-                .toMutableList()
+                val missingShardIndices = (0 until file.n).filter { idx -> alivePlacements.none { it.shardIndex == idx } }
+                val busyNodeIds = block.placements.map { it.nodeId }.toSet()
+                val candidates = peers.values
+                    .filter { it.alive && it.nodeId !in busyNodeIds && it.freeBytes >= block.shardSize }
+                    .sortedByDescending { it.score }
+                    .toMutableList()
 
-            for (shardIndex in missingShardIndices) {
-                val target = candidates.removeFirstOrNull() ?: continue
-                try {
-                    migrateShard(file, shardIndex, target)
-                    file.placements.removeAll { it.shardIndex == shardIndex }
-                    file.placements.add(Placement(shardIndex, target.nodeId))
-                    bumpScore(target.nodeId, +5)
-                } catch (e: Exception) {
-                    e.printStackTrace()
+                for (shardIndex in missingShardIndices) {
+                    val target = candidates.removeFirstOrNull() ?: continue
+                    try {
+                        migrateShard(file, block, shardIndex, target)
+                        block.placements.removeAll { it.shardIndex == shardIndex }
+                        block.placements.add(Placement(shardIndex, target.nodeId))
+                        bumpScore(target.nodeId, +5)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
                 }
             }
         }
     }
 
-    private fun shardKeyFor(fileId: String, shardIndex: Int) = "${fileId}_$shardIndex"
-
-    private fun migrateShard(file: FileMeta, shardIndex: Int, target: PeerInfo) {
-        val alivePlacements = file.placements.filter { peers[it.nodeId]?.alive == true || it.nodeId == selfNodeId }
-        require(alivePlacements.size >= file.k) { "shards vivos insuficientes para reconstruir" }
+    private fun migrateShard(file: FileMeta, block: BlockMeta, shardIndex: Int, target: PeerInfo) {
+        val alivePlacements = block.placements.filter { peers[it.nodeId]?.alive == true || it.nodeId == selfNodeId }
+        require(alivePlacements.size >= file.k) { "shards vivos insuficientes para reconstruir o bloco ${block.blockIndex}" }
 
         val fetched = mutableListOf<AvailableShard>()
         for (p in alivePlacements.take(file.k)) {
@@ -234,17 +260,17 @@ class GossipRegistry(
                 null 
             } else {
                 val peer = peers[p.nodeId] ?: continue
-                peer.transport.getShard(shardKeyFor(file.fileId, p.shardIndex))
+                peer.transport.getShard(ShardKeys.of(file.fileId, block.blockIndex, p.shardIndex))
             }
             if (bytes != null) fetched.add(AvailableShard(p.shardIndex, bytes))
         }
-        require(fetched.size >= file.k) { "não foi possível buscar shards suficientes dos peers vivos" }
+        require(fetched.size >= file.k) { "não foi possível buscar shards suficientes dos peers vivos para o bloco ${block.blockIndex}" }
 
-        val ciphertext = ReedSolomon.decode(fetched, file.cipherLength, file.shardSize, file.k, file.m)
+        val ciphertext = ReedSolomon.decode(fetched, block.plainLength, block.shardSize, file.k, file.m)
         val reEncoded = ReedSolomon.encode(ciphertext, file.k, file.m)
         val missingShardData = reEncoded.shards[shardIndex]
 
-        val ok = target.transport.putShard(shardKeyFor(file.fileId, shardIndex), missingShardData)
-        require(ok) { "falha ao enviar shard reconstruído" }
+        val ok = target.transport.putShard(ShardKeys.of(file.fileId, block.blockIndex, shardIndex), missingShardData)
+        require(ok) { "falha ao enviar shard reconstruído do bloco ${block.blockIndex}" }
     }
 }
