@@ -8,9 +8,6 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
-object ShardKeys {
-    fun of(fileId: String, blockIndex: Int, shardIndex: Int) = "${fileId}_b${blockIndex}_s${shardIndex}"
-}
 
 class GossipRegistry(
     val selfNodeId: String,
