@@ -1,3 +1,6 @@
+⚠️ em manutençao. 04/08/2026 ⚠️
+
+
 <div align="center">
 
 <img src="./assets/logo.png" alt="Vagalun Logo" width="140"/>
