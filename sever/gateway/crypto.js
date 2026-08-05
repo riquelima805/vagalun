@@ -1,8 +1,7 @@
 const crypto = require('crypto');
 const base58 = require('./base58');
 
-// Mesma cifra do KeyManager.kt: AES/GCM/NoPadding, IV de 12 bytes, tag de 16 bytes,
-// chave de 32 bytes (HmacSHA256 do master key + fileId).
+
 function decryptBlock(ciphertext, ivB64, authTagB64, key) {
   const iv = Buffer.from(ivB64, 'base64');
   const authTag = Buffer.from(authTagB64, 'base64');
@@ -18,7 +17,7 @@ function pubkeyToKeyObject(pubkeyB58) {
   return crypto.createPublicKey({ key: jwk, format: 'jwk' });
 }
 
-// Assinatura Ed25519 sobre o manifesto canônico do site (mesma curva da wallet Solana do app).
+
 function verifyEd25519(message, signatureB64, pubkeyB58) {
   try {
     const keyObj = pubkeyToKeyObject(pubkeyB58);
