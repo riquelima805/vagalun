@@ -1,5 +1,4 @@
-// Base58 (alfabeto Bitcoin/Solana) — sem dependência externa.
-// Usado só pra manifesto de site assinado (chave pública do dono do domínio).
+
 
 const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 const ALPHABET_MAP = {};
