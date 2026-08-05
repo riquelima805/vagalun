@@ -1,5 +1,4 @@
-// Porta 1:1 de app/src/main/java/.../erasure/GF256.kt
-// Tem que bater byte a byte com o Kotlin, senão o decode RS não fecha com o que o app gerou.
+
 
 const EXP = new Int32Array(512);
 const LOG = new Int32Array(256);
