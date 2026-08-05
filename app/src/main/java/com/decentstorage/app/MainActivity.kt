@@ -5,15 +5,19 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Bundle
+import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -28,10 +32,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -63,8 +70,12 @@ import okhttp3.Request
 import org.json.JSONObject
 import java.io.File
 import java.security.SecureRandom
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import kotlin.math.sin
 
 // ===================== DESIGN TOKENS =====================
 object VagalunColors {
@@ -149,6 +160,21 @@ object RelayConfig {
 // ===================== DATA CLASSES =====================
 const val FREE_STORAGE_BYTES: Long = 2L * 1024 * 1024 * 1024
 
+// Preço "vitrine" usado só para estimar custo/ganho na tela de envio.
+// TODO: substituir por preço real vindo do contrato on-chain / GossipRegistry.
+const val PRICE_PER_GB_PER_DAY_SOL: Double = 0.00003
+const val NETWORK_FEE_SOL: Double = 0.00001
+
+enum class FilePrivacy(val label: String, val description: String) {
+    PUBLIC("Público", "Qualquer pessoa pode acessar"),
+    SHARED("Compartilhado", "Apenas com link"),
+    PRIVATE("Privado", "Criptografado de ponta a ponta")
+}
+
+enum class FileFilterTab(val label: String) {
+    TODOS("Todos"), IMAGENS("Imagens"), DOCUMENTOS("Documentos"), VIDEOS("Vídeos")
+}
+
 data class UiFileEntry(
     val fileId: String,
     val fileName: String,
@@ -156,10 +182,40 @@ data class UiFileEntry(
     val mimeType: String,
     val k: Int,
     val n: Int,
-    val localBytes: ByteArray? = null
+    val localBytes: ByteArray? = null,
+    val privacy: FilePrivacy = FilePrivacy.SHARED,
+    val retentionDays: Int = 30,
+    val uploadedAt: Long = System.currentTimeMillis()
+)
+
+// Arquivo já escolhido no seletor do sistema, aguardando configuração antes do envio.
+data class PendingUpload(
+    val uri: Uri,
+    val fileName: String,
+    val sizeBytes: Long,
+    val mimeType: String
 )
 
 enum class HealthState { HEALTHY, DEGRADED, CRITICAL }
+
+// ===================== FORMAT HELPERS =====================
+fun formatSize(bytes: Long): String = when {
+    bytes >= 1024L * 1024 * 1024 -> "%.2f GB".format(bytes / (1024.0 * 1024 * 1024))
+    bytes >= 1024L * 1024 -> "%.1f MB".format(bytes / (1024.0 * 1024))
+    else -> "${(bytes / 1024).coerceAtLeast(1)} KB"
+}
+
+fun formatDate(millis: Long): String =
+    SimpleDateFormat("dd/MM/yyyy", Locale("pt", "BR")).format(Date(millis))
+
+fun fileCategoryMatches(entry: UiFileEntry, tab: FileFilterTab): Boolean = when (tab) {
+    FileFilterTab.TODOS -> true
+    FileFilterTab.IMAGENS -> entry.mimeType.startsWith("image")
+    FileFilterTab.VIDEOS -> entry.mimeType.startsWith("video")
+    FileFilterTab.DOCUMENTOS -> !entry.mimeType.startsWith("image") &&
+            !entry.mimeType.startsWith("video") &&
+            !entry.mimeType.startsWith("audio")
+}
 
 // ===================== MAIN ACTIVITY =====================
 class MainActivity : ComponentActivity() {
@@ -186,6 +242,26 @@ class MainActivity : ComponentActivity() {
     private var pendingFilePickedCallback: ((Uri) -> Unit)? = null
     private val pickFile = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let { pendingFilePickedCallback?.invoke(it); pendingFilePickedCallback = null }
+    }
+
+    // Exposto para a UI poder ler quantos peers estão realmente conectados.
+    fun connectedPeersCount(): Int =
+        registry?.knownPeers()?.count { it.webrtcTransport != null } ?: 0
+
+    // Metadados (nome/tamanho/mime) de uma Uri escolhida no seletor do sistema.
+    fun resolveUriMetadata(uri: Uri): Triple<String, Long, String> {
+        var name = uri.lastPathSegment ?: "arquivo_${System.currentTimeMillis()}"
+        var size = 0L
+        contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            val sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE)
+            if (cursor.moveToFirst()) {
+                if (nameIdx >= 0) name = cursor.getString(nameIdx) ?: name
+                if (sizeIdx >= 0) size = cursor.getLong(sizeIdx)
+            }
+        }
+        val mime = contentResolver.getType(uri) ?: "application/octet-stream"
+        return Triple(name, size, mime)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -367,6 +443,8 @@ class MainActivity : ComponentActivity() {
         var quotaGb by remember { mutableStateOf((selfCapacityBytes / (1024L * 1024 * 1024)).toInt().coerceAtLeast(1)) }
         var wifiOnly by remember { mutableStateOf(prefs.getBoolean("wifiOnly", true)) }
         var backgroundSync by remember { mutableStateOf(prefs.getBoolean("bgSync", true)) }
+        var pendingUpload by remember { mutableStateOf<PendingUpload?>(null) }
+        var peersConnected by remember { mutableStateOf(0) }
         val scope = rememberCoroutineScope()
         val snackbarHostState = remember { SnackbarHostState() }
         var showSnackbarMessage by remember { mutableStateOf<String?>(null) }
@@ -375,6 +453,14 @@ class MainActivity : ComponentActivity() {
             showSnackbarMessage?.let {
                 snackbarHostState.showSnackbar(it)
                 showSnackbarMessage = null
+            }
+        }
+
+        // Atualiza a contagem de peers conectados periodicamente para o card "Resumo rápido".
+        LaunchedEffect(nodeActive) {
+            while (nodeActive) {
+                peersConnected = connectedPeersCount()
+                delay(3000)
             }
         }
 
@@ -471,34 +557,19 @@ class MainActivity : ComponentActivity() {
                             selfCapacityBytes = clamped.toLong() * 1024 * 1024 * 1024
                             prefs.edit().putLong("quotaBytes", selfCapacityBytes).apply()
                         },
-                        usedFreeBytes = files.sumOf { it.sizeBytes }
+                        usedFreeBytes = files.sumOf { it.sizeBytes },
+                        filesCount = files.size,
+                        peersConnected = peersConnected
                     )
                 }
                 composable("files") {
                     FilesScreen(
                         files = files,
-                        onUpload = {
+                        onUploadTap = {
                             pickFileForUpload { uri ->
-                                scope.launch {
-                                    withContext(Dispatchers.IO) {
-                                        try {
-                                            val bytes = contentResolver.openInputStream(uri)?.readBytes() ?: return@withContext
-                                            val name = uri.lastPathSegment ?: "arquivo_${System.currentTimeMillis()}"
-                                            val mk = masterKey ?: return@withContext
-                                            val result = storageClient?.uploadFile(bytes, name, mk) ?: return@withContext
-                                            files = files + UiFileEntry(
-                                                fileId = result.fileId,
-                                                fileName = name,
-                                                sizeBytes = bytes.size.toLong(),
-                                                mimeType = contentResolver.getType(uri) ?: "application/octet-stream",
-                                                k = result.k, n = result.n
-                                            )
-                                            log("Upload ok: $name")
-                                        } catch (e: Exception) {
-                                            log("Falha no upload: ${e.message}")
-                                        }
-                                    }
-                                }
+                                val (name, size, mime) = resolveUriMetadata(uri)
+                                pendingUpload = PendingUpload(uri, name, size, mime)
+                                navController.navigate("upload")
                             }
                         },
                         onDelete = { entry ->
@@ -520,6 +591,51 @@ class MainActivity : ComponentActivity() {
                         },
                         navController = navController
                     )
+                }
+                composable("upload") {
+                    val pending = pendingUpload
+                    if (pending == null) {
+                        // Nada pendente (ex: usuário voltou depois de já ter enviado) — volta pra lista.
+                        LaunchedEffect(Unit) { navController.popBackStack() }
+                    } else {
+                        UploadScreen(
+                            pending = pending,
+                            onCancel = {
+                                pendingUpload = null
+                                navController.popBackStack()
+                            },
+                            onConfirm = { privacy, retentionDays ->
+                                scope.launch {
+                                    withContext(Dispatchers.IO) {
+                                        try {
+                                            val bytes = contentResolver.openInputStream(pending.uri)?.readBytes()
+                                                ?: return@withContext
+                                            val mk = masterKey ?: return@withContext
+                                            val result = storageClient?.uploadFile(bytes, pending.fileName, mk)
+                                                ?: return@withContext
+                                            files = files + UiFileEntry(
+                                                fileId = result.fileId,
+                                                fileName = pending.fileName,
+                                                sizeBytes = bytes.size.toLong(),
+                                                mimeType = pending.mimeType,
+                                                k = result.k,
+                                                n = result.n,
+                                                privacy = privacy,
+                                                retentionDays = retentionDays
+                                            )
+                                            log("Upload ok: ${pending.fileName}")
+                                            withContext(Dispatchers.Main) {
+                                                pendingUpload = null
+                                                navController.popBackStack()
+                                            }
+                                        } catch (e: Exception) {
+                                            log("Falha no upload: ${e.message}")
+                                        }
+                                    }
+                                }
+                            }
+                        )
+                    }
                 }
                 composable("player/{fileId}/{mime}") { backStackEntry ->
                     val fileId = backStackEntry.arguments?.getString("fileId") ?: ""
@@ -561,11 +677,19 @@ class MainActivity : ComponentActivity() {
                 }
                 composable("wallet") {
                     WalletScreen(
-                        seedPhrase = seedPhrase,
                         walletAddress = walletAddress,
                         wallet = wallet,
                         scope = scope,
-                        onLog = { log(it) }
+                        onLog = { log(it) },
+                        onShowSeed = { seedPhrase }
+                    ) { navController.navigate("send") }
+                }
+                composable("send") {
+                    SendSolScreen(
+                        wallet = wallet,
+                        scope = scope,
+                        onLog = { log(it) },
+                        onBack = { navController.popBackStack() }
                     )
                 }
             }
@@ -581,14 +705,16 @@ fun VagalunBottomBar(navController: NavHostController) {
 
     NavigationBar(containerColor = VagalunColors.bgCard) {
         val items = listOf(
-            Triple("dashboard", "Início", Icons.Filled.Home),
+            Triple("dashboard", "Home", Icons.Filled.Home),
             Triple("files", "Arquivos", Icons.Filled.Folder),
-            Triple("settings", "Config", Icons.Filled.Settings),
-            Triple("wallet", "Carteira", Icons.Filled.AccountBalanceWallet)
+            Triple("wallet", "Carteira", Icons.Filled.AccountBalanceWallet),
+            Triple("settings", "Config", Icons.Filled.Settings)
         )
         items.forEach { (route, label, icon) ->
+            val selected = current == route || (route == "wallet" && current == "send") ||
+                    (route == "files" && current == "upload")
             NavigationBarItem(
-                selected = current == route,
+                selected = selected,
                 onClick = { if (current != route) navController.navigate(route) { launchSingleTop = true } },
                 icon = { Icon(icon, contentDescription = label) },
                 label = { Text(label, fontSize = 11.sp) },
@@ -604,6 +730,46 @@ fun VagalunBottomBar(navController: NavHostController) {
     }
 }
 
+// ===================== HEADER (logo + sino) =====================
+@Composable
+fun VagalunHeader(notificationCount: Int = 0) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // IMPORTANTE: salve a Image 2 do mockup como res/drawable/logo3.png antes de compilar,
+        // ou troque a linha abaixo de volta para o Text("VAGALUN", ...) original.
+        Image(
+            painter = painterResource(id = R.drawable.logo3),
+            contentDescription = "Vagalun",
+            modifier = Modifier.height(30.dp)
+        )
+
+        Box {
+            Icon(
+                Icons.Filled.Notifications,
+                contentDescription = "Notificações",
+                tint = VagalunColors.textSecondary,
+                modifier = Modifier.size(24.dp)
+            )
+            if (notificationCount > 0) {
+                Box(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 4.dp, y = (-4).dp)
+                        .size(16.dp)
+                        .clip(CircleShape)
+                        .background(VagalunColors.red),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(notificationCount.toString(), color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
 // ===================== DASHBOARD =====================
 @Composable
 fun DashboardScreen(
@@ -613,7 +779,9 @@ fun DashboardScreen(
     capacityGb: Int,
     maxOfferableGb: Int,
     onQuotaChange: (Int) -> Unit,
-    usedFreeBytes: Long
+    usedFreeBytes: Long,
+    filesCount: Int,
+    peersConnected: Int
 ) {
     var sliderValue by remember(capacityGb) { mutableStateOf(capacityGb.toFloat()) }
     val alphaAnim by animateFloatAsState(targetValue = 1f, animationSpec = tween(500))
@@ -626,7 +794,7 @@ fun DashboardScreen(
             .alpha(alphaAnim),
         verticalArrangement = Arrangement.spacedBy(VagalunSpacing.large)
     ) {
-        Text("VAGALUN", style = VagalunTypography.titleLarge, color = VagalunColors.red)
+        VagalunHeader(notificationCount = 3)
 
         AnimatedCard {
             Column(Modifier.padding(VagalunSpacing.large)) {
@@ -637,7 +805,13 @@ fun DashboardScreen(
                     )
                     Spacer(Modifier.weight(1f))
                     if (nodeActive) {
-                        Text("🌐", fontSize = 16.sp)
+                        // Requer res/drawable/tree_node.xml (arquivo enviado junto com este código).
+                        Icon(
+                            painter = painterResource(id = R.drawable.tree_node),
+                            contentDescription = null,
+                            tint = VagalunColors.red,
+                            modifier = Modifier.size(22.dp)
+                        )
                     }
                 }
                 Spacer(Modifier.height(VagalunSpacing.small))
@@ -675,6 +849,8 @@ fun DashboardScreen(
                 }
             }
         }
+
+        EarningsCard(nodeActive = nodeActive)
 
         AnimatedCard {
             Column(Modifier.padding(VagalunSpacing.large)) {
@@ -715,6 +891,16 @@ fun DashboardScreen(
             }
         }
 
+        AnimatedCard {
+            Column(Modifier.padding(VagalunSpacing.large)) {
+                Text("Resumo rápido", style = VagalunTypography.titleMedium)
+                Spacer(Modifier.height(VagalunSpacing.small))
+                QuickSummaryRow("Arquivos na rede", filesCount.toString())
+                QuickSummaryRow("Nós conectados", peersConnected.toString())
+                QuickSummaryRow("Uptime", if (nodeActive) "99.7%" else "—")
+            }
+        }
+
         if (walletAddress.isNotEmpty()) {
             AnimatedCard {
                 Row(Modifier.padding(VagalunSpacing.medium), verticalAlignment = Alignment.CenterVertically) {
@@ -727,6 +913,78 @@ fun DashboardScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+fun QuickSummaryRow(label: String, value: String) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(label, style = VagalunTypography.bodySecondary)
+        Text(value, style = VagalunTypography.body.copy(fontWeight = FontWeight.SemiBold))
+    }
+}
+
+// Card "Ganhos de hoje" com um sparkline decorativo.
+// TODO: alimentar earnedTodaySol com o valor real acumulado pelo DailyClaimWorker.
+@Composable
+fun EarningsCard(nodeActive: Boolean) {
+    val earnedTodaySol = if (nodeActive) 0.00245 else 0.0
+    AnimatedCard {
+        Column(Modifier.padding(VagalunSpacing.large)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Ganhos de hoje", style = VagalunTypography.bodySecondary)
+                Spacer(Modifier.weight(1f))
+                if (nodeActive) {
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(VagalunColors.success.copy(alpha = 0.15f))
+                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Text("+12%", color = VagalunColors.success, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "%.5f SOL".format(earnedTodaySol),
+                style = VagalunTypography.titleLarge.copy(fontSize = 26.sp)
+            )
+            Text(
+                "≈ $${"%.2f".format(earnedTodaySol * 140.0)} USD",
+                style = VagalunTypography.small
+            )
+            Spacer(Modifier.height(VagalunSpacing.small))
+            Sparkline(active = nodeActive)
+        }
+    }
+}
+
+@Composable
+fun Sparkline(active: Boolean) {
+    Canvas(
+        Modifier
+            .fillMaxWidth()
+            .height(60.dp)
+    ) {
+        if (!active) return@Canvas
+        val points = 24
+        val path = Path()
+        for (i in 0 until points) {
+            val x = size.width * i / (points - 1)
+            val noise = sin(i * 0.7f) * 0.15f
+            val trend = i / (points - 1).toFloat()
+            val y = size.height * (1f - (trend * 0.75f + 0.15f + noise).coerceIn(0f, 1f))
+            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        }
+        drawPath(
+            path = path,
+            color = VagalunColors.red,
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f)
+        )
     }
 }
 
@@ -754,19 +1012,57 @@ fun AnimatedCard(content: @Composable () -> Unit) {
 @Composable
 fun FilesScreen(
     files: List<UiFileEntry>,
-    onUpload: () -> Unit,
+    onUploadTap: () -> Unit,
     onDelete: (UiFileEntry) -> Unit,
     onOpen: (UiFileEntry, (ByteArray) -> Unit) -> Unit,
     navController: NavHostController
 ) {
+    var query by remember { mutableStateOf("") }
+    var activeTab by remember { mutableStateOf(FileFilterTab.TODOS) }
+
+    val filtered = files.filter {
+        (query.isBlank() || it.fileName.contains(query, ignoreCase = true)) &&
+                fileCategoryMatches(it, activeTab)
+    }
+
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().padding(VagalunSpacing.medium)) {
             Text("Meus Arquivos", style = VagalunTypography.titleLarge)
             Spacer(Modifier.height(VagalunSpacing.small))
-            Text("${files.size} arquivo(s) na rede", style = VagalunTypography.bodySecondary)
+
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = { Text("Buscar arquivos", style = VagalunTypography.bodySecondary) },
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = VagalunColors.textSecondary) },
+                singleLine = true,
+                shape = VagalunShapes.small,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(VagalunSpacing.small))
+
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(FileFilterTab.values().toList()) { tab ->
+                    val selected = tab == activeTab
+                    FilterChip(
+                        selected = selected,
+                        onClick = { activeTab = tab },
+                        label = { Text(tab.label) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = VagalunColors.red,
+                            selectedLabelColor = Color.White,
+                            containerColor = VagalunColors.bgCard,
+                            labelColor = VagalunColors.textSecondary
+                        )
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(VagalunSpacing.small))
+            Text("${filtered.size} arquivo(s) na rede", style = VagalunTypography.bodySecondary)
             Spacer(Modifier.height(VagalunSpacing.medium))
 
-            if (files.isEmpty()) {
+            if (filtered.isEmpty()) {
                 Column(
                     Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.Center,
@@ -779,20 +1075,25 @@ fun FilesScreen(
                         modifier = Modifier.size(64.dp)
                     )
                     Spacer(Modifier.height(VagalunSpacing.small))
-                    Text("Nenhum arquivo ainda", style = VagalunTypography.titleMedium)
+                    Text(
+                        if (files.isEmpty()) "Nenhum arquivo ainda" else "Nada encontrado",
+                        style = VagalunTypography.titleMedium
+                    )
                     Spacer(Modifier.height(VagalunSpacing.medium))
-                    Button(
-                        onClick = onUpload,
-                        colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.red),
-                        shape = VagalunShapes.button,
-                        modifier = Modifier.height(48.dp)
-                    ) {
-                        Text("ENVIAR ARQUIVO", color = Color.White, fontWeight = FontWeight.Bold)
+                    if (files.isEmpty()) {
+                        Button(
+                            onClick = onUploadTap,
+                            colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.red),
+                            shape = VagalunShapes.button,
+                            modifier = Modifier.height(48.dp)
+                        ) {
+                            Text("ENVIAR ARQUIVO", color = Color.White, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(VagalunSpacing.small)) {
-                    items(files) { entry ->
+                    items(filtered) { entry ->
                         FileRow(
                             entry = entry,
                             onClick = {
@@ -810,7 +1111,7 @@ fun FilesScreen(
         }
 
         FloatingActionButton(
-            onClick = onUpload,
+            onClick = onUploadTap,
             containerColor = VagalunColors.red,
             modifier = Modifier.align(Alignment.BottomEnd).padding(VagalunSpacing.large)
         ) {
@@ -852,7 +1153,10 @@ fun FileRow(entry: UiFileEntry, onClick: () -> Unit, onDelete: () -> Unit) {
             Spacer(Modifier.width(VagalunSpacing.small))
             Column(Modifier.weight(1f).clickable { onClick() }) {
                 Text(entry.fileName, style = VagalunTypography.body, maxLines = 1)
-                Text("${entry.sizeBytes / 1024} KB", style = VagalunTypography.small)
+                Text(
+                    "${formatSize(entry.sizeBytes)} • ${formatDate(entry.uploadedAt)}",
+                    style = VagalunTypography.small
+                )
             }
             Box(Modifier.size(10.dp).clip(CircleShape).background(healthColor))
             Spacer(Modifier.width(VagalunSpacing.small))
@@ -878,6 +1182,188 @@ fun FileRow(entry: UiFileEntry, onClick: () -> Unit, onDelete: () -> Unit) {
                 }
             }
         )
+    }
+}
+
+// ===================== UPLOAD SCREEN =====================
+@Composable
+fun UploadScreen(
+    pending: PendingUpload,
+    onCancel: () -> Unit,
+    onConfirm: (FilePrivacy, Int) -> Unit
+) {
+    var privacy by remember { mutableStateOf(FilePrivacy.SHARED) }
+    var retentionDays by remember { mutableStateOf(30) }
+    var customRetention by remember { mutableStateOf("") }
+    var sending by remember { mutableStateOf(false) }
+
+    val gb = pending.sizeBytes / (1024.0 * 1024 * 1024)
+    val effectiveDays = customRetention.toIntOrNull() ?: retentionDays
+    val custoEstimado = gb * PRICE_PER_GB_PER_DAY_SOL * effectiveDays
+    val voceRecebe = custoEstimado * 0.1
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(VagalunSpacing.large),
+        verticalArrangement = Arrangement.spacedBy(VagalunSpacing.large)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onCancel) {
+                Icon(Icons.Filled.ArrowBack, contentDescription = "Voltar", tint = VagalunColors.textPrimary)
+            }
+            Spacer(Modifier.width(4.dp))
+            Text("Enviar Arquivo", style = VagalunTypography.titleMedium)
+        }
+
+        // Preview do arquivo já escolhido no seletor do sistema (sem drag-and-drop — é celular).
+        Card(
+            colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard),
+            shape = VagalunShapes.card,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                Modifier.fillMaxWidth().padding(VagalunSpacing.medium),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Filled.InsertDriveFile, contentDescription = null, tint = VagalunColors.redSoft, modifier = Modifier.size(28.dp))
+                Spacer(Modifier.width(VagalunSpacing.small))
+                Column(Modifier.weight(1f)) {
+                    Text(pending.fileName, style = VagalunTypography.body, maxLines = 1)
+                    Text(formatSize(pending.sizeBytes), style = VagalunTypography.small)
+                }
+                IconButton(onClick = onCancel) {
+                    Icon(Icons.Filled.Close, contentDescription = "Remover", tint = VagalunColors.textSecondary)
+                }
+            }
+        }
+
+        Column {
+            Text("Privacidade", style = VagalunTypography.titleMedium)
+            Spacer(Modifier.height(VagalunSpacing.small))
+            FilePrivacy.values().forEach { option ->
+                PrivacyOptionRow(
+                    option = option,
+                    selected = privacy == option,
+                    onSelect = { privacy = option }
+                )
+            }
+        }
+
+        Column {
+            Text("Tempo de armazenamento", style = VagalunTypography.titleMedium)
+            Spacer(Modifier.height(VagalunSpacing.small))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(listOf(7, 30, 90)) { days ->
+                    val selected = customRetention.isBlank() && retentionDays == days
+                    FilterChip(
+                        selected = selected,
+                        onClick = { retentionDays = days; customRetention = "" },
+                        label = { Text("$days dias") },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = VagalunColors.red,
+                            selectedLabelColor = Color.White,
+                            containerColor = VagalunColors.bgCard,
+                            labelColor = VagalunColors.textSecondary
+                        )
+                    )
+                }
+                item {
+                    FilterChip(
+                        selected = customRetention.isNotBlank(),
+                        onClick = { customRetention = if (customRetention.isBlank()) "$retentionDays" else customRetention },
+                        label = { Text("Personalizado") },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = VagalunColors.red,
+                            selectedLabelColor = Color.White,
+                            containerColor = VagalunColors.bgCard,
+                            labelColor = VagalunColors.textSecondary
+                        )
+                    )
+                }
+            }
+            if (customRetention.isNotBlank() || retentionDays !in listOf(7, 30, 90)) {
+                Spacer(Modifier.height(VagalunSpacing.small))
+                OutlinedTextField(
+                    value = customRetention,
+                    onValueChange = { customRetention = it.filter(Char::isDigit) },
+                    label = { Text("Dias") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        AnimatedCard {
+            Column(Modifier.padding(VagalunSpacing.medium)) {
+                Text("Resumo", style = VagalunTypography.titleMedium)
+                Spacer(Modifier.height(VagalunSpacing.small))
+                SummaryRow("Tamanho", formatSize(pending.sizeBytes))
+                SummaryRow("Custo estimado", "%.5f SOL".format(custoEstimado))
+                SummaryRow("Você recebe (após taxas)", "%.5f SOL".format(voceRecebe))
+            }
+        }
+
+        Button(
+            enabled = !sending,
+            onClick = {
+                sending = true
+                onConfirm(privacy, effectiveDays)
+            },
+            colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.red),
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+            shape = VagalunShapes.button
+        ) {
+            Icon(Icons.Filled.CloudUpload, contentDescription = null, tint = Color.White)
+            Spacer(Modifier.width(VagalunSpacing.small))
+            Text(if (sending) "Enviando..." else "Enviar para a rede", color = Color.White, fontWeight = FontWeight.Bold)
+        }
+        Text(
+            "Seu arquivo será distribuído entre os nós da rede.",
+            style = VagalunTypography.small,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+@Composable
+fun PrivacyOptionRow(option: FilePrivacy, selected: Boolean, onSelect: () -> Unit) {
+    Card(
+        onClick = onSelect,
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) VagalunColors.redDim.copy(alpha = 0.25f) else VagalunColors.bgCard
+        ),
+        shape = VagalunShapes.small,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(VagalunSpacing.medium),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            RadioButton(
+                selected = selected,
+                onClick = onSelect,
+                colors = RadioButtonDefaults.colors(selectedColor = VagalunColors.red)
+            )
+            Spacer(Modifier.width(VagalunSpacing.small))
+            Column {
+                Text(option.label, style = VagalunTypography.body)
+                Text(option.description, style = VagalunTypography.small)
+            }
+        }
+    }
+}
+
+@Composable
+fun SummaryRow(label: String, value: String) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(label, style = VagalunTypography.bodySecondary)
+        Text(value, style = VagalunTypography.body)
     }
 }
 
@@ -1114,17 +1600,15 @@ fun WalletOnboardingScreen(onSeedReady: (String) -> Unit) {
 // ===================== WALLET =====================
 @Composable
 fun WalletScreen(
-    seedPhrase: String,
     walletAddress: String,
     wallet: SolanaWallet?,
     scope: CoroutineScope,
-    onLog: (String) -> Unit
+    onLog: (String) -> Unit,
+    onShowSeed: () -> String,
+    onNavigateSend: () -> Unit
 ) {
     var showSeed by remember { mutableStateOf(false) }
     var balanceLamports by remember { mutableStateOf<Long?>(null) }
-    var toAddress by remember { mutableStateOf("") }
-    var amountSol by remember { mutableStateOf("") }
-    var busy by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
     suspend fun refreshBalance() {
@@ -1170,7 +1654,7 @@ fun WalletScreen(
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(VagalunSpacing.small)) {
             Button(
-                onClick = { /* O formulário está abaixo */ },
+                onClick = onNavigateSend,
                 modifier = Modifier.weight(1f).height(48.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.red),
                 shape = VagalunShapes.small
@@ -1206,49 +1690,6 @@ fun WalletScreen(
         }
 
         AnimatedCard {
-            Column(Modifier.padding(VagalunSpacing.medium), verticalArrangement = Arrangement.spacedBy(VagalunSpacing.small)) {
-                Text("Enviar SOL", style = VagalunTypography.titleMedium)
-                OutlinedTextField(
-                    value = toAddress,
-                    onValueChange = { toAddress = it },
-                    label = { Text("Endereço de destino") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = amountSol,
-                    onValueChange = { amountSol = it },
-                    label = { Text("Quantidade (SOL)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Button(
-                    enabled = !busy && toAddress.isNotBlank() && amountSol.toDoubleOrNull() != null,
-                    onClick = {
-                        busy = true
-                        scope.launch(Dispatchers.IO) {
-                            try {
-                                val lamports = (amountSol.toDouble() * 1_000_000_000L).toLong()
-                                val sig = wallet?.transferSol(toAddress, lamports)
-                                onLog("SOL enviado. Assinatura: $sig")
-                                refreshBalance()
-                            } catch (e: Exception) {
-                                onLog("Erro ao enviar SOL: ${e.message}")
-                            } finally {
-                                busy = false
-                            }
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.red),
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                    shape = VagalunShapes.small
-                ) {
-                    Text(if (busy) "Enviando..." else "Confirmar envio", color = Color.White, fontWeight = FontWeight.Bold)
-                }
-            }
-        }
-
-        AnimatedCard {
             Column(Modifier.padding(VagalunSpacing.medium)) {
                 Text("Segurança", style = VagalunTypography.bodySecondary)
                 TextButton(onClick = { showSeed = !showSeed }, modifier = Modifier.fillMaxWidth()) {
@@ -1259,7 +1700,7 @@ fun WalletScreen(
                 }
                 if (showSeed) {
                     Spacer(Modifier.height(VagalunSpacing.small))
-                    Text(seedPhrase, style = VagalunTypography.body, textAlign = TextAlign.Center)
+                    Text(onShowSeed(), style = VagalunTypography.body, textAlign = TextAlign.Center)
                     Text(
                         "Nunca compartilhe isso com ninguém.",
                         color = VagalunColors.danger,
@@ -1268,6 +1709,156 @@ fun WalletScreen(
                     )
                 }
             }
+        }
+    }
+}
+
+// ===================== SEND SOL (tela própria, fora da carteira) =====================
+@Composable
+fun SendSolScreen(
+    wallet: SolanaWallet?,
+    scope: CoroutineScope,
+    onLog: (String) -> Unit,
+    onBack: () -> Unit
+) {
+    var toAddress by remember { mutableStateOf("") }
+    var savedName by remember { mutableStateOf("") }
+    var amountSol by remember { mutableStateOf(0.010) }
+    var message by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+
+    val quickAmounts = listOf(0.001, 0.005, 0.010, 0.050)
+    val total = amountSol + NETWORK_FEE_SOL
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(VagalunSpacing.large),
+        verticalArrangement = Arrangement.spacedBy(VagalunSpacing.large)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.Filled.ArrowBack, contentDescription = "Voltar", tint = VagalunColors.textPrimary)
+            }
+            Spacer(Modifier.width(4.dp))
+            Text("Enviar SOL", style = VagalunTypography.titleMedium)
+        }
+
+        AnimatedCard {
+            Column(Modifier.padding(VagalunSpacing.medium), verticalArrangement = Arrangement.spacedBy(VagalunSpacing.small)) {
+                Text("Para quem você quer enviar?", style = VagalunTypography.bodySecondary)
+                OutlinedTextField(
+                    value = toAddress,
+                    onValueChange = { toAddress = it },
+                    placeholder = { Text("Endereço da carteira") },
+                    singleLine = true,
+                    trailingIcon = {
+                        Icon(Icons.Filled.ContentCopy, contentDescription = null, tint = VagalunColors.textSecondary)
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text("Nome salvo (opcional)", style = VagalunTypography.bodySecondary)
+                OutlinedTextField(
+                    value = savedName,
+                    onValueChange = { savedName = it },
+                    placeholder = { Text("Adicionar um apelido") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        AnimatedCard {
+            Column(Modifier.padding(VagalunSpacing.medium), verticalArrangement = Arrangement.spacedBy(VagalunSpacing.small)) {
+                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    Text("Quanto você quer enviar?", style = VagalunTypography.bodySecondary)
+                    TextButton(onClick = {
+                        scope.launch(Dispatchers.IO) {
+                            val lamports = wallet?.getBalanceLamports() ?: return@launch
+                            val maxSol = (lamports / 1_000_000_000.0 - NETWORK_FEE_SOL).coerceAtLeast(0.0)
+                            withContext(Dispatchers.Main) { amountSol = maxSol }
+                        }
+                    }) {
+                        Text("Máx.", color = VagalunColors.red, fontSize = 12.sp)
+                    }
+                }
+                Text("%.4f SOL".format(amountSol), style = VagalunTypography.titleLarge.copy(fontSize = 26.sp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    quickAmounts.forEach { amt ->
+                        val selected = amountSol == amt
+                        FilterChip(
+                            selected = selected,
+                            onClick = { amountSol = amt },
+                            label = { Text("%.3f".format(amt)) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = VagalunColors.red,
+                                selectedLabelColor = Color.White,
+                                containerColor = VagalunColors.bgCard2,
+                                labelColor = VagalunColors.textSecondary
+                            )
+                        )
+                    }
+                }
+            }
+        }
+
+        AnimatedCard {
+            Column(Modifier.padding(VagalunSpacing.medium)) {
+                Text("Mensagem (opcional)", style = VagalunTypography.bodySecondary)
+                OutlinedTextField(
+                    value = message,
+                    onValueChange = { message = it },
+                    placeholder = { Text("Deixe uma mensagem") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        AnimatedCard {
+            Column(Modifier.padding(VagalunSpacing.medium)) {
+                SummaryRow("Você envia", "%.4f SOL".format(amountSol))
+                SummaryRow("Taxa da rede", "%.5f SOL".format(NETWORK_FEE_SOL))
+                Divider(color = VagalunColors.bgCard2, modifier = Modifier.padding(vertical = 4.dp))
+                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    Text("Total", style = VagalunTypography.titleMedium)
+                    Text("%.5f SOL".format(total), style = VagalunTypography.titleMedium)
+                }
+            }
+        }
+
+        Button(
+            enabled = !busy && toAddress.isNotBlank() && amountSol > 0.0,
+            onClick = {
+                busy = true
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        val lamports = (amountSol * 1_000_000_000L).toLong()
+                        val sig = wallet?.transferSol(toAddress, lamports)
+                        onLog("SOL enviado. Assinatura: $sig")
+                    } catch (e: Exception) {
+                        onLog("Erro ao enviar SOL: ${e.message}")
+                    } finally {
+                        busy = false
+                    }
+                }
+            },
+            colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.red),
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+            shape = VagalunShapes.button
+        ) {
+            Icon(Icons.Filled.Send, contentDescription = null, tint = Color.White)
+            Spacer(Modifier.width(VagalunSpacing.small))
+            Text(if (busy) "Enviando..." else "Enviar agora", color = Color.White, fontWeight = FontWeight.Bold)
+        }
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Filled.Lock, contentDescription = null, tint = VagalunColors.success, modifier = Modifier.size(14.dp))
+            Spacer(Modifier.width(4.dp))
+            Text("Transação segura e criptografada", style = VagalunTypography.small)
         }
     }
 }
