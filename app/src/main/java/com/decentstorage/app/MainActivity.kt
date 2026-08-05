@@ -382,7 +382,7 @@ class MainActivity : ComponentActivity() {
                                                 mimeType = contentResolver.getType(uri) ?: "application/octet-stream",
                                                 k = result.k, n = result.n
                                             )
-                                            log("Upload ok: $name (${result.peerIds.size} peers)")
+                                           log("Upload ok: $name (${result.blockCount} blocos)")
                                         } catch (e: Exception) {
                                             log("Falha no upload: ${e.message}")
                                         }
