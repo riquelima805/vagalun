@@ -1,18 +1,18 @@
 package com.decentstorage.app
 
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Bundle
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -29,7 +29,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
@@ -59,42 +62,62 @@ import java.io.File
 import java.security.SecureRandom
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
-import androidx.compose.foundation.clickable
-import androidx.compose.ui.graphics.asImageBitmap
 
 
-// Paleta oficial da marca: vermelho e preto.
 object VagalunColors {
-    val bg = Color(0xFF0A0A0B)
-    val bgCard = Color(0xFF161417)
-    val bgCard2 = Color(0xFF201B1D)
-    val red = Color(0xFFE31B23)
+    val bg = Color(0xFF0D0D0D)
+    val bgCard = Color(0xFF1A1A1A)
+    val bgCard2 = Color(0xFF2A2A2A)
+    val red = Color(0xFFFF3B3B)
     val redSoft = Color(0xFFFF5A5F)
     val redDim = Color(0xFF7A1116)
-    val textPrimary = Color(0xFFF3EEEE)
-    val textSecondary = Color(0xFF9C9498)
+    val textPrimary = Color(0xFFFFFFFF)
+    val textSecondary = Color(0xFFB0B0B0)
     val danger = Color(0xFFFF4D4D)
     val warning = Color(0xFFFFB020)
+    val success = Color(0xFF4CAF50)
 }
 
-// Cada usuário começa com 2 GB fixos gratuitos para guardar os próprios arquivos.
-const val FREE_STORAGE_BYTES: Long = 2L * 1024 * 1024 * 1024
+object VagalunTypography {
+    val titleLarge = androidx.compose.ui.text.TextStyle(
+        fontSize = 26.sp,
+        fontWeight = FontWeight.Bold,
+        color = VagalunColors.textPrimary
+    )
+    val titleMedium = TextStyle(
+        fontSize = 18.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = VagalunColors.textPrimary
+    )
+    val body = TextStyle(
+        fontSize = 14.sp,
+        color = VagalunColors.textPrimary
+    )
+    val bodySecondary = TextStyle(
+        fontSize = 13.sp,
+        color = VagalunColors.textSecondary
+    )
+    val small = TextStyle(
+        fontSize = 11.sp,
+        color = VagalunColors.textSecondary
+    )
+}
 
-data class UiFileEntry(
-    val fileId: String,
-    val fileName: String,
-    val sizeBytes: Long,
-    val mimeType: String,
-    val k: Int,
-    val n: Int,
-    val localBytes: ByteArray? = null
-)
+object VagalunShapes {
+    val card = RoundedCornerShape(20.dp)
+    val button = RoundedCornerShape(14.dp)
+    val small = RoundedCornerShape(12.dp)
+}
 
-enum class HealthState { HEALTHY, DEGRADED, CRITICAL }
+object VagalunSpacing {
+    val small = 8.dp
+    val medium = 16.dp
+    val large = 20.dp
+    val xlarge = 24.dp
+}
 
-// Endereço do relay é publicado remotamente (JSON fixo). O app busca esse
-// arquivo sozinho, sem precisar de configuração manual do usuário nem de um
-// novo build quando a infraestrutura mudar.
+
+
 object RelayConfig {
     private const val CONFIG_URL =
         "https://raw.githubusercontent.com/riquelima805/adla-nft-market/refs/heads/main/reley.json"
@@ -112,10 +135,7 @@ object RelayConfig {
                 val body = resp.body?.string()?.trim()
                 if (body.isNullOrBlank()) return null
                 val json = JSONObject(body)
-                val url = json.optString(
-                    "signalingUrl",
-                    json.optString("url", json.optString("wss", ""))
-                )
+                val url = json.optString("signalingUrl", json.optString("url", json.optString("wss", "")))
                 url.trim().ifBlank { null }
             }
         } catch (e: Exception) {
@@ -123,6 +143,22 @@ object RelayConfig {
         }
     }
 }
+
+
+const val FREE_STORAGE_BYTES: Long = 2L * 1024 * 1024 * 1024
+
+data class UiFileEntry(
+    val fileId: String,
+    val fileName: String,
+    val sizeBytes: Long,
+    val mimeType: String,
+    val k: Int,
+    val n: Int,
+    val localBytes: ByteArray? = null
+)
+
+enum class HealthState { HEALTHY, DEGRADED, CRITICAL }
+
 
 class MainActivity : ComponentActivity() {
 
@@ -140,11 +176,8 @@ class MainActivity : ComponentActivity() {
 
     private var selfCapacityBytes: Long = 15L * 1024 * 1024 * 1024
     private var selfDataDir: File? = null
-
-    // Cache local do último relay conhecido, usado só se a busca remota falhar.
     private var selfSignalingUrl: String = ""
 
-    // Usado só pro fallback de Relay quando o WebRTC direto não conecta (NAT ruim, sem TURN etc).
     private val relayFallbackExecutor = Executors.newSingleThreadScheduledExecutor()
     private val RELAY_FALLBACK_DELAY_SECONDS = 12L
 
@@ -157,17 +190,18 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         prefs = getSharedPreferences("decentstorage", MODE_PRIVATE)
         selfCapacityBytes = prefs.getLong("quotaBytes", selfCapacityBytes)
-
         selfCapacityBytes = ensureQuotaWithinPhysicalLimits(selfCapacityBytes)
         selfSignalingUrl = prefs.getString("signalingUrl", "") ?: ""
 
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme(
-                background = VagalunColors.bg,
-                surface = VagalunColors.bgCard,
-                primary = VagalunColors.red,
-                secondary = VagalunColors.redSoft
-            )) {
+            MaterialTheme(
+                colorScheme = darkColorScheme(
+                    background = VagalunColors.bg,
+                    surface = VagalunColors.bgCard,
+                    primary = VagalunColors.red,
+                    secondary = VagalunColors.redSoft
+                )
+            ) {
                 VagalunApp()
             }
         }
@@ -194,11 +228,7 @@ class MainActivity : ComponentActivity() {
         registry = reg
         reg.start()
 
-        shardServer = ShardServer(nodeId, 8901, selfCapacityBytes, selfDataDir!!, applicationContext).also {
-            it.start()
-        }
-
-
+        shardServer = ShardServer(nodeId, 8901, selfCapacityBytes, selfDataDir!!, applicationContext).also { it.start() }
 
         storageClient = StorageClient(reg)
 
@@ -213,8 +243,6 @@ class MainActivity : ComponentActivity() {
         onReady(wallet!!.publicKey.toString())
     }
 
-    // Busca o endereço do relay no JSON fixo publicado remotamente e conecta a
-    // WAN com ele. Se a busca falhar, tenta usar o último endereço em cache.
     private fun refreshRelayAndConnect(onLog: (String) -> Unit) {
         val fetched = RelayConfig.fetchSignalingUrl()
         when {
@@ -246,7 +274,6 @@ class MainActivity : ComponentActivity() {
         }
         signalingClient = sc
 
-        // O TURN foi removido - agora usamos apenas STUN público e (futuramente) Relay
         val mgr = WebRtcManager(
             context = this,
             signalingClient = sc,
@@ -259,12 +286,10 @@ class MainActivity : ComponentActivity() {
         webRtcManager = mgr
         sc.onSignal = { from, payload -> mgr.handleSignal(from, payload) }
 
-
         sc.onPeerList = { peerIds ->
             val others = peerIds.filter { it != nodeId }
             if (others.isNotEmpty()) onLog("Peers vistos no signaling: ${others.joinToString()}")
             others.forEach { peerId ->
-
                 if (nodeId < peerId) {
                     mgr.connectToPeer(peerId)
                     scheduleRelayFallback(peerId, sc, reqHandler, onLog)
@@ -286,8 +311,6 @@ class MainActivity : ComponentActivity() {
             registry?.detachWanTransport(peerId)
         }
 
-        // Se outro peer não conseguir abrir WebRTC direto comigo (NAT ruim etc.) e cair
-        // pro Relay via signaling server, respondo os pedidos de shard normalmente.
         sc.onRelayRequest = { from, requestId, header, payload ->
             val (respHeader, respPayload) = try {
                 reqHandler.handle(header, payload)
@@ -299,7 +322,6 @@ class MainActivity : ComponentActivity() {
 
         sc.connect()
     }
-
 
     private fun scheduleRelayFallback(
         peerId: String,
@@ -329,6 +351,7 @@ class MainActivity : ComponentActivity() {
         pickFile.launch("*/*")
     }
 
+    
     @Composable
     fun VagalunApp() {
         val navController = rememberNavController()
@@ -343,34 +366,40 @@ class MainActivity : ComponentActivity() {
         var wifiOnly by remember { mutableStateOf(prefs.getBoolean("wifiOnly", true)) }
         var backgroundSync by remember { mutableStateOf(prefs.getBoolean("bgSync", true)) }
         val scope = rememberCoroutineScope()
+        val snackbarHostState = remember { SnackbarHostState() }
+        var showSnackbarMessage by remember { mutableStateOf<String?>(null) }
 
-        fun log(msg: String) { logLines = (listOf(msg) + logLines).take(50) }
+        // Exibe snackbar quando houver mensagem
+        LaunchedEffect(showSnackbarMessage) {
+            showSnackbarMessage?.let {
+                snackbarHostState.showSnackbar(it)
+                showSnackbarMessage = null
+            }
+        }
+
+        fun log(msg: String) {
+            logLines = (listOf(msg) + logLines).take(50)
+            showSnackbarMessage = msg
+        }
 
         fun startNode() {
             if (nodeActive) return
             scope.launch {
                 withContext(Dispatchers.IO) {
                     try {
-
                         ensureEngineStarted(seedPhrase, onReady = { addr ->
                             walletAddress = addr
                         }, onLog = { log(it) })
 
-
-                        log("Verificando/Inicializando conta on-chain...")
                         val sig = anchorClient?.initAccount()
-
                         if (sig != null && sig.startsWith("ERRO")) {
-
                             log("Conta já inicializada ou saldo de SOL insuficiente.")
                         } else {
-                            log("Conta on-chain criada com sucesso! Sig: $sig")
+                            log("Conta on-chain criada com sucesso!")
                         }
-
 
                         startedAt = System.currentTimeMillis()
                         nodeActive = true
-
                     } catch (e: Exception) {
                         log("Erro ao iniciar: ${e.message}")
                     }
@@ -394,9 +423,30 @@ class MainActivity : ComponentActivity() {
 
         Scaffold(
             containerColor = VagalunColors.bg,
-            bottomBar = { VagalunBottomBar(navController) }
+            bottomBar = { VagalunBottomBar(navController) },
+            snackbarHost = { SnackbarHost(snackbarHostState) }
         ) { padding ->
-            NavHost(navController, startDestination = "dashboard", modifier = Modifier.padding(padding)) {
+            NavHost(
+                navController = navController,
+                startDestination = "dashboard",
+                modifier = Modifier.padding(padding),
+                enterTransition = {
+                    fadeIn(animationSpec = tween(300)) +
+                            slideInHorizontally(initialOffsetX = { 40 })
+                },
+                exitTransition = {
+                    fadeOut(animationSpec = tween(200)) +
+                            slideOutHorizontally(targetOffsetX = { -40 })
+                },
+                popEnterTransition = {
+                    fadeIn(animationSpec = tween(300)) +
+                            slideInHorizontally(initialOffsetX = { -40 })
+                },
+                popExitTransition = {
+                    fadeOut(animationSpec = tween(200)) +
+                            slideOutHorizontally(targetOffsetX = { 40 })
+                }
+            ) {
                 composable("dashboard") {
                     DashboardScreen(
                         nodeActive = nodeActive,
@@ -407,11 +457,9 @@ class MainActivity : ComponentActivity() {
                             } else {
                                 disconnectWan()
                                 nodeActive = false
-                                log("Node desativado — desconectado da WAN (continua descobrível na Wi-Fi local via NSD).")
+                                log("Sistema desativado")
                             }
                         },
-                        peersCount = registry?.knownPeers()?.size ?: 0,
-                        uptimeMs = if (startedAt > 0) System.currentTimeMillis() - startedAt else 0,
                         walletAddress = walletAddress,
                         capacityGb = quotaGb,
                         maxOfferableGb = DeviceStorage.maxOfferableGb(this@MainActivity),
@@ -422,9 +470,7 @@ class MainActivity : ComponentActivity() {
                             selfCapacityBytes = clamped.toLong() * 1024 * 1024 * 1024
                             prefs.edit().putLong("quotaBytes", selfCapacityBytes).apply()
                         },
-                        usedFiles = files.size,
-                        usedFreeBytes = files.sumOf { it.sizeBytes },
-                        logLines = logLines
+                        usedFreeBytes = files.sumOf { it.sizeBytes }
                     )
                 }
                 composable("files") {
@@ -446,7 +492,7 @@ class MainActivity : ComponentActivity() {
                                                 mimeType = contentResolver.getType(uri) ?: "application/octet-stream",
                                                 k = result.k, n = result.n
                                             )
-                                           log("Upload ok: $name (${result.blockCount} blocos)")
+                                            log("Upload ok: $name")
                                         } catch (e: Exception) {
                                             log("Falha no upload: ${e.message}")
                                         }
@@ -494,7 +540,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         },
-                        onReport = { log("fileId $fileId denunciado — bloqueado localmente") },
+                        onReport = { log("Arquivo denunciado") },
                         onBack = { navController.popBackStack() }
                     )
                 }
@@ -517,7 +563,6 @@ class MainActivity : ComponentActivity() {
                         seedPhrase = seedPhrase,
                         walletAddress = walletAddress,
                         wallet = wallet,
-                        anchorClient = anchorClient,
                         scope = scope,
                         onLog = { log(it) }
                     )
@@ -560,240 +605,159 @@ fun VagalunBottomBar(navController: NavHostController) {
 
 
 @Composable
-fun NodePulse(active: Boolean, size: Int = 84) {
-    val infiniteTransition = rememberInfiniteTransition(label = "nodePulse")
-    val ringScale by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.9f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1600, easing = LinearOutSlowInEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "ringScale"
-    )
-    val ringAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.55f,
-        targetValue = 0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1600, easing = LinearOutSlowInEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "ringAlpha"
-    )
-    val coreScale by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.06f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(900, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "coreScale"
-    )
-
-    Box(Modifier.size(size.dp), contentAlignment = Alignment.Center) {
-        if (active) {
-            Box(
-                Modifier
-                    .size((size * 0.72f).dp)
-                    .scale(ringScale)
-                    .clip(CircleShape)
-                    .background(VagalunColors.red.copy(alpha = ringAlpha))
-            )
-        }
-        Box(
-            Modifier
-                .size((size * 0.72f).dp)
-                .scale(if (active) coreScale else 1f)
-                .clip(CircleShape)
-                .background(
-                    Brush.radialGradient(
-                        colors = if (active)
-                            listOf(VagalunColors.redSoft, VagalunColors.red)
-                        else
-                            listOf(VagalunColors.bgCard2, VagalunColors.bgCard2)
-                    )
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                Icons.Filled.Bolt,
-                contentDescription = null,
-                tint = if (active) Color.White else VagalunColors.textSecondary,
-                modifier = Modifier.size((size * 0.34f).dp)
-            )
-        }
-    }
-}
-
-
-@Composable
 fun DashboardScreen(
     nodeActive: Boolean,
     onToggleNode: (Boolean) -> Unit,
-    peersCount: Int,
-    uptimeMs: Long,
     walletAddress: String,
     capacityGb: Int,
     maxOfferableGb: Int,
     onQuotaChange: (Int) -> Unit,
-    usedFiles: Int,
-    usedFreeBytes: Long,
-    logLines: List<String> = emptyList()
+    usedFreeBytes: Long
 ) {
-    var sliderValue by remember(capacityGb) { mutableStateOf(capacityGb.toFloat().coerceAtMost(maxOfferableGb.toFloat())) }
+    var sliderValue by remember(capacityGb) { mutableStateOf(capacityGb.toFloat()) }
+    val alphaAnim by animateFloatAsState(targetValue = 1f, animationSpec = tween(500))
 
     Column(
         Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
+            .padding(VagalunSpacing.large)
+            .graphicsLayer { alpha = alphaAnim },
+        verticalArrangement = Arrangement.spacedBy(VagalunSpacing.large)
     ) {
-        Text("VAGALUN", color = VagalunColors.red, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        // Logo
+        Text("VAGALUN", style = VagalunTypography.titleLarge, color = VagalunColors.red)
 
-        // Status do node com animação quando ativo
-        Card(
-            colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard),
-            shape = RoundedCornerShape(20.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Row(
-                Modifier.padding(20.dp).fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+      
+        AnimatedCard {
+            Column(Modifier.padding(VagalunSpacing.large)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    NodePulse(active = nodeActive)
-                    Spacer(Modifier.width(14.dp))
-                    Column {
-                        Text(
-                            if (nodeActive) "Ativo" else "Adormecido",
-                            color = VagalunColors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp
-                        )
-                        Text(
-                            if (nodeActive) "Participando da rede agora" else "Toque para ativar",
-                            color = VagalunColors.textSecondary, fontSize = 12.sp
-                        )
+                    Text(
+                        if (nodeActive) "🟢 Sistema ativo" else "⚪ Sistema pausado",
+                        style = VagalunTypography.titleMedium
+                    )
+                    Spacer(Modifier.weight(1f))
+                    if (nodeActive) {
+                        Text("🌐", fontSize = 16.sp)
                     }
                 }
-                Switch(
-                    checked = nodeActive,
-                    onCheckedChange = onToggleNode,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = VagalunColors.red,
-                        checkedTrackColor = VagalunColors.red.copy(alpha = 0.35f)
+                Spacer(Modifier.height(VagalunSpacing.small))
+                Text(
+                    if (nodeActive) "Seu dispositivo está contribuindo com a rede"
+                    else "Ative para começar a ganhar recompensas",
+                    style = VagalunTypography.bodySecondary
+                )
+                Spacer(Modifier.height(VagalunSpacing.medium))
+                
+                var buttonScale by remember { mutableStateOf(1f) }
+                Button(
+                    onClick = {
+                        buttonScale = 0.95f
+                        onToggleNode(!nodeActive)
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp)
+                        .scale(buttonScale),
+                    shape = VagalunShapes.button,
+                    colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.red)
+                ) {
+                    Text(
+                        if (nodeActive) "DESATIVAR" else "ATIVAR AGORA",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
                     )
+                }
+                
+                LaunchedEffect(buttonScale) {
+                    if (buttonScale < 1f) {
+                        delay(150)
+                        buttonScale = 1f
+                    }
+                }
+            }
+        }
+
+       
+        AnimatedCard {
+            Column(Modifier.padding(VagalunSpacing.large)) {
+                Text("Armazenamento", style = VagalunTypography.titleMedium)
+                Spacer(Modifier.height(VagalunSpacing.small))
+                val usedGb = usedFreeBytes / (1024f * 1024 * 1024)
+                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    Text("Seu plano gratuito", style = VagalunTypography.bodySecondary)
+                    Text("${"%.2f".format(usedGb)} GB de 2 GB", style = VagalunTypography.body)
+                }
+                Spacer(Modifier.height(VagalunSpacing.small))
+                LinearProgressIndicator(
+                    progress = (usedFreeBytes.toFloat() / FREE_STORAGE_BYTES.toFloat()).coerceIn(0f, 1f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp)
+                        .clip(RoundedCornerShape(4.dp)),
+                    color = VagalunColors.red,
+                    trackColor = VagalunColors.bgCard2
+                )
+                Spacer(Modifier.height(VagalunSpacing.medium))
+                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    Text("Compartilhando", style = VagalunTypography.bodySecondary)
+                    Text("${sliderValue.toInt()} GB", style = VagalunTypography.body)
+                }
+                Slider(
+                    value = sliderValue,
+                    onValueChange = { sliderValue = it },
+                    onValueChangeFinished = { onQuotaChange(sliderValue.toInt()) },
+                    valueRange = 1f..maxOfferableGb.toFloat().coerceAtLeast(1f),
+                    colors = SliderDefaults.colors(
+                        thumbColor = VagalunColors.red,
+                        activeTrackColor = VagalunColors.red,
+                        inactiveTrackColor = VagalunColors.bgCard2
+                    )
+                )
+                Text(
+                    "Máximo disponível: $maxOfferableGb GB",
+                    style = VagalunTypography.small
                 )
             }
         }
 
-
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StatChip(Modifier.weight(1f), "$peersCount", "Nodes ativos")
-            StatChip(Modifier.weight(1f), formatUptime(uptimeMs), "uptime")
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StatChip(Modifier.weight(1f), "$usedFiles", "arquivos na nuvem")
-            StatChip(Modifier.weight(1f), "$capacityGb GB", "cota cedida")
-        }
-
+        // Wallet resumido
         if (walletAddress.isNotEmpty()) {
-            Text(
-                "Carteira: ${walletAddress.take(6)}...${walletAddress.takeLast(4)}",
-                color = VagalunColors.textSecondary, fontSize = 12.sp
-            )
-        }
-
-        // Seção de armazenamento (antes ficava em Configurações)
-        Card(
-            colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard),
-            shape = RoundedCornerShape(20.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text("Armazenamento", color = VagalunColors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                        Text("Seu plano gratuito", color = VagalunColors.textSecondary, fontSize = 12.sp)
-                        val usedGbText = "%.2f".format(usedFreeBytes / (1024.0 * 1024 * 1024))
-                        Text("$usedGbText GB de 2 GB", color = VagalunColors.textPrimary, fontSize = 12.sp)
-                    }
-                    LinearProgressIndicator(
-                        progress = (usedFreeBytes.toFloat() / FREE_STORAGE_BYTES.toFloat()).coerceIn(0f, 1f),
-                        modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
-                        color = VagalunColors.red,
-                        trackColor = VagalunColors.bgCard2
-                    )
-                }
-
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                        Text("Você está compartilhando", color = VagalunColors.textSecondary, fontSize = 12.sp)
-                        Text("${sliderValue.toInt()} GB", color = VagalunColors.textPrimary, fontSize = 12.sp)
-                    }
-                    Slider(
-                        value = sliderValue,
-                        onValueChange = { sliderValue = it },
-                        onValueChangeFinished = { onQuotaChange(sliderValue.toInt()) },
-                        valueRange = 1f..maxOfferableGb.toFloat().coerceAtLeast(1f),
-                        colors = SliderDefaults.colors(thumbColor = VagalunColors.red, activeTrackColor = VagalunColors.red)
-                    )
+            AnimatedCard {
+                Row(Modifier.padding(VagalunSpacing.medium), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.AccountBalanceWallet, tint = VagalunColors.red, contentDescription = null)
+                    Spacer(Modifier.width(VagalunSpacing.small))
                     Text(
-                        "Máximo disponível neste aparelho: $maxOfferableGb GB",
-                        color = VagalunColors.textSecondary, fontSize = 11.sp
+                        "Carteira: ${walletAddress.take(6)}...${walletAddress.takeLast(4)}",
+                        style = VagalunTypography.bodySecondary
                     )
-                }
-            }
-        }
-
-        if (logLines.isNotEmpty()) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(Modifier.padding(16.dp)) {
-                    Text(
-                        "Log do sistema",
-                        color = VagalunColors.textSecondary,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    logLines.take(15).forEach { line ->
-                        Text(
-                            line,
-                            color = VagalunColors.textSecondary,
-                            fontSize = 11.sp,
-                            modifier = Modifier.padding(vertical = 2.dp)
-                        )
-                    }
                 }
             }
         }
     }
 }
+
 
 @Composable
-fun StatChip(modifier: Modifier = Modifier, value: String, label: String) {
-    Card(
-        modifier = modifier,
-        colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard),
-        shape = RoundedCornerShape(16.dp)
-    ) {
-        Column(Modifier.padding(16.dp)) {
-            Text(value, color = VagalunColors.redSoft, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            Text(label, color = VagalunColors.textSecondary, fontSize = 11.sp)
-        }
-    }
-}
+fun AnimatedCard(content: @Composable () -> Unit) {
+    val transition = updateTransition(targetState = true, label = "card")
+    val alpha by transition.animateFloat(label = "alpha") { if (it) 1f else 0f }
+    val scale by transition.animateFloat(label = "scale") { if (it) 1f else 0.95f }
 
-fun formatUptime(ms: Long): String {
-    val totalMin = ms / 60000
-    val h = totalMin / 60
-    val m = totalMin % 60
-    return "${h}h${m}m"
+    Card(
+        shape = VagalunShapes.card,
+        colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard),
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                this.alpha = alpha
+                this.scaleX = scale
+                this.scaleY = scale
+            }
+    ) {
+        content()
+    }
 }
 
 
@@ -806,18 +770,39 @@ fun FilesScreen(
     navController: NavHostController
 ) {
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().padding(16.dp)) {
-            Text("Meus Arquivos", color = VagalunColors.textPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(4.dp))
-            Text("${files.size} arquivo(s) na rede", color = VagalunColors.textSecondary, fontSize = 12.sp)
-            Spacer(Modifier.height(16.dp))
+        Column(Modifier.fillMaxSize().padding(VagalunSpacing.medium)) {
+            Text("Meus Arquivos", style = VagalunTypography.titleLarge)
+            Spacer(Modifier.height(VagalunSpacing.small))
+            Text("${files.size} arquivo(s) na rede", style = VagalunTypography.bodySecondary)
+            Spacer(Modifier.height(VagalunSpacing.medium))
 
             if (files.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Nenhum arquivo ainda.\nToque em + para enviar.", color = VagalunColors.textSecondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                // Estado vazio com animação
+                Column(
+                    Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        Icons.Filled.Folder,
+                        contentDescription = null,
+                        tint = VagalunColors.textSecondary,
+                        modifier = Modifier.size(64.dp)
+                    )
+                    Spacer(Modifier.height(VagalunSpacing.small))
+                    Text("Nenhum arquivo ainda", style = VagalunTypography.titleMedium)
+                    Spacer(Modifier.height(VagalunSpacing.medium))
+                    Button(
+                        onClick = onUpload,
+                        colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.red),
+                        shape = VagalunShapes.button,
+                        modifier = Modifier.height(48.dp)
+                    ) {
+                        Text("ENVIAR ARQUIVO", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
                 }
             } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(VagalunSpacing.small)) {
                     items(files) { entry ->
                         FileRow(
                             entry = entry,
@@ -825,7 +810,7 @@ fun FilesScreen(
                                 if (entry.mimeType.startsWith("image") || entry.mimeType.startsWith("video")) {
                                     navController.navigate("player/${entry.fileId}/${Uri.encode(entry.mimeType)}")
                                 } else {
-                                    onOpen(entry) { /* poderia disparar um "Salvar como" aqui */ }
+                                    onOpen(entry) { /* salvar? */ }
                                 }
                             },
                             onDelete = { onDelete(entry) }
@@ -838,7 +823,7 @@ fun FilesScreen(
         FloatingActionButton(
             onClick = onUpload,
             containerColor = VagalunColors.red,
-            modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp)
+            modifier = Modifier.align(Alignment.BottomEnd).padding(VagalunSpacing.large)
         ) {
             Icon(Icons.Filled.Add, contentDescription = "Enviar arquivo", tint = Color.White)
         }
@@ -850,7 +835,7 @@ fun FileRow(entry: UiFileEntry, onClick: () -> Unit, onDelete: () -> Unit) {
     var showConfirm by remember { mutableStateOf(false) }
     val health = if (entry.k <= entry.n - 2) HealthState.HEALTHY else if (entry.k < entry.n) HealthState.DEGRADED else HealthState.CRITICAL
     val healthColor = when (health) {
-        HealthState.HEALTHY -> VagalunColors.red
+        HealthState.HEALTHY -> VagalunColors.success
         HealthState.DEGRADED -> VagalunColors.warning
         HealthState.CRITICAL -> VagalunColors.danger
     }
@@ -861,7 +846,7 @@ fun FileRow(entry: UiFileEntry, onClick: () -> Unit, onDelete: () -> Unit) {
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
-            Modifier.fillMaxWidth().padding(14.dp).clip(RoundedCornerShape(16.dp)),
+            Modifier.fillMaxWidth().padding(VagalunSpacing.medium),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
@@ -875,13 +860,13 @@ fun FileRow(entry: UiFileEntry, onClick: () -> Unit, onDelete: () -> Unit) {
                 tint = VagalunColors.redSoft,
                 modifier = Modifier.size(28.dp)
             )
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f).clickableSimple(onClick)) {
-                Text(entry.fileName, color = VagalunColors.textPrimary, fontSize = 14.sp, maxLines = 1)
-                Text("${entry.sizeBytes / 1024} KB · K=${entry.k} M=${entry.n - entry.k}", color = VagalunColors.textSecondary, fontSize = 11.sp)
+            Spacer(Modifier.width(VagalunSpacing.small))
+            Column(Modifier.weight(1f).clickable { onClick() }) {
+                Text(entry.fileName, style = VagalunTypography.body, maxLines = 1)
+                Text("${entry.sizeBytes / 1024} KB", style = VagalunTypography.small)
             }
             Box(Modifier.size(10.dp).clip(CircleShape).background(healthColor))
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(VagalunSpacing.small))
             IconButton(onClick = { showConfirm = true }) {
                 Icon(Icons.Filled.Delete, contentDescription = "Excluir", tint = VagalunColors.danger)
             }
@@ -892,18 +877,20 @@ fun FileRow(entry: UiFileEntry, onClick: () -> Unit, onDelete: () -> Unit) {
         AlertDialog(
             onDismissRequest = { showConfirm = false },
             title = { Text("Excluir arquivo?") },
-            text = { Text("Isso encerra o pagamento do contrato e avisa a rede (gossip) para liberar o espaço nos outros peers.") },
+            text = { Text("Isso encerra o pagamento do contrato e avisa a rede para liberar o espaço.") },
             confirmButton = {
-                TextButton(onClick = { showConfirm = false; onDelete() }) { Text("Excluir", color = VagalunColors.danger) }
+                TextButton(onClick = { showConfirm = false; onDelete() }) {
+                    Text("Excluir", color = VagalunColors.danger)
+                }
             },
-            dismissButton = { TextButton(onClick = { showConfirm = false }) { Text("Cancelar") } }
+            dismissButton = {
+                TextButton(onClick = { showConfirm = false }) {
+                    Text("Cancelar")
+                }
+            }
         )
     }
 }
-
-
-fun Modifier.clickableSimple(onClick: () -> Unit): Modifier =
-    this.clickable(onClick = onClick)
 
 
 @Composable
@@ -929,30 +916,33 @@ fun MediaViewerScreen(
                 Modifier.align(Alignment.Center),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                CircularProgressIndicator(color = VagalunColors.red)
-                Spacer(Modifier.height(12.dp))
-                Text("Buscando shards na rede...", color = VagalunColors.textSecondary)
+                
+                CircularProgressIndicator(
+                    color = VagalunColors.red,
+                    modifier = Modifier.size(48.dp)
+                )
+                Spacer(Modifier.height(VagalunSpacing.small))
+                Text("Buscando shards na rede...", style = VagalunTypography.bodySecondary)
             }
             mimeType.startsWith("image") && bytes != null -> {
                 val bmp = remember(bytes) {
                     android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes!!.size)
                 }
                 if (bmp != null) {
-    androidx.compose.foundation.Image(
-        bitmap = bmp.asImageBitmap(),
-        contentDescription = entry?.fileName,
-        modifier = Modifier.fillMaxSize()
-    )
-}
+                    androidx.compose.foundation.Image(
+                        bitmap = bmp.asImageBitmap(),
+                        contentDescription = entry?.fileName,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
             }
             mimeType.startsWith("video") && bytes != null -> {
                 VideoPlayerFromBytes(bytes!!, entry?.fileName ?: "video.mp4")
             }
         }
 
-
         Row(
-            Modifier.fillMaxWidth().align(Alignment.TopCenter).padding(12.dp),
+            Modifier.fillMaxWidth().align(Alignment.TopCenter).padding(VagalunSpacing.small),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             IconButton(onClick = onBack) {
@@ -967,7 +957,7 @@ fun MediaViewerScreen(
 
 @Composable
 fun VideoPlayerFromBytes(bytes: ByteArray, fileName: String) {
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     val tempFile = remember(bytes) {
         File(context.cacheDir, "play_${System.currentTimeMillis()}_$fileName").apply { writeBytes(bytes) }
     }
@@ -980,7 +970,7 @@ fun VideoPlayerFromBytes(bytes: ByteArray, fileName: String) {
         factory = { ctx ->
             val playerView = com.google.android.exoplayer2.ui.PlayerView(ctx)
             val player = com.google.android.exoplayer2.ExoPlayer.Builder(ctx).build()
-            val mediaItem = com.google.android.exoplayer2.MediaItem.fromUri(android.net.Uri.fromFile(tempFile))
+            val mediaItem = com.google.android.exoplayer2.MediaItem.fromUri(Uri.fromFile(tempFile))
             player.setMediaItem(mediaItem)
             player.prepare()
             player.playWhenReady = true
@@ -1001,31 +991,26 @@ fun SettingsScreen(
     onClearDeadShards: () -> Unit
 ) {
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp)
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(VagalunSpacing.large),
+        verticalArrangement = Arrangement.spacedBy(VagalunSpacing.large)
     ) {
-        Text("Configurações", color = VagalunColors.textPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Text("Configurações", style = VagalunTypography.titleLarge)
 
-        Card(colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard), shape = RoundedCornerShape(18.dp)) {
-            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        AnimatedCard {
+            Column(Modifier.padding(VagalunSpacing.medium), verticalArrangement = Arrangement.spacedBy(VagalunSpacing.small)) {
                 SettingsToggleRow("Sincronizar apenas no Wi-Fi", wifiOnly, onWifiOnlyChange)
-                SettingsToggleRow("Rodar em segundo plano", backgroundSync, onBackgroundSyncChange)
+                SettingsToggleRow("Manter ativo em segundo plano", backgroundSync, onBackgroundSyncChange)
             }
         }
-
-        Text(
-            "O node se conecta à rede automaticamente, sem precisar configurar nada manualmente.",
-            color = VagalunColors.textSecondary, fontSize = 12.sp
-        )
 
         Button(
             onClick = onClearDeadShards,
             colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.bgCard2),
-            shape = RoundedCornerShape(14.dp),
+            shape = VagalunShapes.button,
             modifier = Modifier.fillMaxWidth().height(52.dp)
         ) {
             Icon(Icons.Filled.CleaningServices, contentDescription = null, tint = VagalunColors.redSoft)
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(VagalunSpacing.small))
             Text("Limpar cache", color = VagalunColors.textPrimary)
         }
     }
@@ -1038,10 +1023,14 @@ fun SettingsToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(label, color = VagalunColors.textPrimary, fontSize = 14.sp)
+        Text(label, style = VagalunTypography.body)
         Switch(
-            checked = checked, onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(checkedThumbColor = VagalunColors.red, checkedTrackColor = VagalunColors.red.copy(alpha = 0.35f))
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = VagalunColors.red,
+                checkedTrackColor = VagalunColors.red.copy(alpha = 0.35f)
+            )
         )
     }
 }
@@ -1049,19 +1038,19 @@ fun SettingsToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean
 
 @Composable
 fun WalletOnboardingScreen(onSeedReady: (String) -> Unit) {
-    var mode by remember { mutableStateOf("choose") } // choose | create | restore
+    var mode by remember { mutableStateOf("choose") }
     var generatedSeed by remember { mutableStateOf("") }
     var restoreInput by remember { mutableStateOf("") }
     var confirmed by remember { mutableStateOf(false) }
 
     Box(Modifier.fillMaxSize().background(VagalunColors.bg), contentAlignment = Alignment.Center) {
         Column(
-            Modifier.fillMaxWidth().padding(28.dp),
+            Modifier.fillMaxWidth().padding(VagalunSpacing.xlarge),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+            verticalArrangement = Arrangement.spacedBy(VagalunSpacing.large)
         ) {
-            Text("VAGALUN", color = VagalunColors.red, fontSize = 30.sp, fontWeight = FontWeight.Bold)
-            Text("Sua chave, sua carteira Solana.", color = VagalunColors.textSecondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Text("VAGALUN", color = VagalunColors.red, style = VagalunTypography.titleLarge)
+            Text("Sua chave, sua carteira Solana.", style = VagalunTypography.bodySecondary, textAlign = TextAlign.Center)
 
             when (mode) {
                 "choose" -> {
@@ -1069,23 +1058,41 @@ fun WalletOnboardingScreen(onSeedReady: (String) -> Unit) {
                         onClick = { generatedSeed = KeyManager.generateSeedPhrase(); mode = "create" },
                         colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.red),
                         modifier = Modifier.fillMaxWidth().height(52.dp)
-                    ) { Text("Criar novo cofre", color = Color.White, fontWeight = FontWeight.Bold) }
-
+                    ) {
+                        Text("Criar novo cofre", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
                     OutlinedButton(
                         onClick = { mode = "restore" },
                         modifier = Modifier.fillMaxWidth().height(52.dp)
-                    ) { Text("Já tenho uma seed phrase", color = VagalunColors.redSoft) }
+                    ) {
+                        Text("Já tenho uma seed phrase", color = VagalunColors.redSoft)
+                    }
                 }
                 "create" -> {
-                    Card(colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard), shape = RoundedCornerShape(16.dp)) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard),
+                        shape = VagalunShapes.card
+                    ) {
                         Text(
-                            generatedSeed, color = VagalunColors.textPrimary, fontSize = 16.sp,
-                            modifier = Modifier.padding(20.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            generatedSeed,
+                            color = VagalunColors.textPrimary,
+                            fontSize = 16.sp,
+                            modifier = Modifier.padding(VagalunSpacing.large),
+                            textAlign = TextAlign.Center
                         )
                     }
-                    Text("Anote as 12 palavras em papel. Sem elas você perde acesso pra sempre.", color = VagalunColors.warning, fontSize = 12.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    Text(
+                        "Anote as 12 palavras em papel. Sem elas você perde acesso pra sempre.",
+                        color = VagalunColors.warning,
+                        fontSize = 12.sp,
+                        textAlign = TextAlign.Center
+                    )
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = confirmed, onCheckedChange = { confirmed = it }, colors = CheckboxDefaults.colors(checkedColor = VagalunColors.red))
+                        Checkbox(
+                            checked = confirmed,
+                            onCheckedChange = { confirmed = it },
+                            colors = CheckboxDefaults.colors(checkedColor = VagalunColors.red)
+                        )
                         Text("Já anotei em local seguro", color = VagalunColors.textPrimary, fontSize = 12.sp)
                     }
                     Button(
@@ -1093,11 +1100,14 @@ fun WalletOnboardingScreen(onSeedReady: (String) -> Unit) {
                         onClick = { onSeedReady(generatedSeed) },
                         colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.red),
                         modifier = Modifier.fillMaxWidth().height(52.dp)
-                    ) { Text("Continuar", color = Color.White, fontWeight = FontWeight.Bold) }
+                    ) {
+                        Text("Continuar", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
                 }
                 "restore" -> {
                     OutlinedTextField(
-                        value = restoreInput, onValueChange = { restoreInput = it },
+                        value = restoreInput,
+                        onValueChange = { restoreInput = it },
                         label = { Text("Digite as 12 palavras") },
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -1107,7 +1117,9 @@ fun WalletOnboardingScreen(onSeedReady: (String) -> Unit) {
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.red),
                         modifier = Modifier.fillMaxWidth().height(52.dp)
-                    ) { Text("Restaurar", color = Color.White, fontWeight = FontWeight.Bold) }
+                    ) {
+                        Text("Restaurar", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
@@ -1120,7 +1132,6 @@ fun WalletScreen(
     seedPhrase: String,
     walletAddress: String,
     wallet: SolanaWallet?,
-    anchorClient: AnchorStorageClient?,
     scope: CoroutineScope,
     onLog: (String) -> Unit
 ) {
@@ -1129,6 +1140,7 @@ fun WalletScreen(
     var toAddress by remember { mutableStateOf("") }
     var amountSol by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     suspend fun refreshBalance() {
         try {
@@ -1142,42 +1154,91 @@ fun WalletScreen(
         if (wallet != null) withContext(Dispatchers.IO) { refreshBalance() }
     }
 
+    fun copyAddress() {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = android.content.ClipData.newPlainText("wallet_address", walletAddress)
+        clipboard.setPrimaryClip(clip)
+        onLog("Endereço copiado")
+    }
+
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(VagalunSpacing.large),
+        verticalArrangement = Arrangement.spacedBy(VagalunSpacing.large)
     ) {
-        Text("Carteira", color = VagalunColors.textPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Text("Carteira", style = VagalunTypography.titleLarge)
 
-
-        Card(colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard), shape = RoundedCornerShape(18.dp)) {
-            Column(Modifier.padding(18.dp)) {
+        
+        AnimatedCard {
+            Column(Modifier.padding(VagalunSpacing.large)) {
+                Text("Saldo", style = VagalunTypography.bodySecondary)
                 Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                    Text("Saldo (devnet)", color = VagalunColors.textSecondary, fontSize = 12.sp)
+                    val lamports = balanceLamports
+                    Text(
+                        if (lamports == null) "carregando..." else "%.6f SOL".format(lamports / 1_000_000_000.0),
+                        style = VagalunTypography.titleLarge.copy(fontSize = 28.sp)
+                    )
                     IconButton(onClick = { scope.launch(Dispatchers.IO) { refreshBalance() } }) {
                         Icon(Icons.Filled.Refresh, contentDescription = "Atualizar", tint = VagalunColors.redSoft)
                     }
                 }
-                val lamports = balanceLamports
-                Text(
-                    if (lamports == null) "carregando..." else "%.6f SOL".format(lamports / 1_000_000_000.0),
-                    color = VagalunColors.red, fontSize = 26.sp, fontWeight = FontWeight.Bold
-                )
-                Text("Endereço: ${walletAddress.ifEmpty { "iniciando..." }}", color = VagalunColors.textSecondary, fontSize = 12.sp)
             }
         }
 
+        
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(VagalunSpacing.small)) {
+            Button(
+                onClick = { /* O formulário de envio está abaixo */ },
+                modifier = Modifier.weight(1f).height(48.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.red),
+                shape = VagalunShapes.small
+            ) {
+                Icon(Icons.Filled.Send, contentDescription = null, tint = Color.White)
+                Spacer(Modifier.width(VagalunSpacing.small))
+                Text("Enviar", color = Color.White, fontWeight = FontWeight.Bold)
+            }
+            OutlinedButton(
+                onClick = { copyAddress() },
+                modifier = Modifier.weight(1f).height(48.dp),
+                shape = VagalunShapes.small
+            ) {
+                Icon(Icons.Filled.Receipt, contentDescription = null, tint = VagalunColors.red)
+                Spacer(Modifier.width(VagalunSpacing.small))
+                Text("Receber", color = VagalunColors.red, fontWeight = FontWeight.Bold)
+            }
+        }
 
-        Card(colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard), shape = RoundedCornerShape(18.dp)) {
-            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Enviar SOL", color = VagalunColors.textPrimary, fontWeight = FontWeight.Bold)
+        
+        if (walletAddress.isNotEmpty()) {
+            AnimatedCard {
+                Row(Modifier.padding(VagalunSpacing.medium), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Endereço: ${walletAddress.take(6)}...${walletAddress.takeLast(4)}",
+                        style = VagalunTypography.bodySecondary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(onClick = { copyAddress() }) {
+                        Icon(Icons.Filled.ContentCopy, contentDescription = "Copiar", tint = VagalunColors.redSoft)
+                    }
+                }
+            }
+        }
+
+        
+        AnimatedCard {
+            Column(Modifier.padding(VagalunSpacing.medium), verticalArrangement = Arrangement.spacedBy(VagalunSpacing.small)) {
+                Text("Enviar SOL", style = VagalunTypography.titleMedium)
                 OutlinedTextField(
-                    value = toAddress, onValueChange = { toAddress = it },
-                    label = { Text("Endereço de destino") }, singleLine = true,
+                    value = toAddress,
+                    onValueChange = { toAddress = it },
+                    label = { Text("Endereço de destino") },
+                    singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
-                    value = amountSol, onValueChange = { amountSol = it },
-                    label = { Text("Quantidade (SOL)") }, singleLine = true,
+                    value = amountSol,
+                    onValueChange = { amountSol = it },
+                    label = { Text("Quantidade (SOL)") },
+                    singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 Button(
@@ -1198,51 +1259,35 @@ fun WalletScreen(
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.red),
-                    modifier = Modifier.fillMaxWidth().height(48.dp)
-                ) { Text(if (busy) "Enviando..." else "Enviar SOL", color = Color.White, fontWeight = FontWeight.Bold) }
-
-
-                OutlinedButton(
-                    enabled = !busy,
-                    onClick = {
-                        busy = true
-                        scope.launch(Dispatchers.IO) {
-                            try {
-                                val sig = anchorClient?.requestDevnetAirdrop()
-                                onLog("Airdrop devnet solicitado: $sig")
-                                refreshBalance()
-                            } catch (e: Exception) {
-                                onLog("Erro no airdrop: ${e.message}")
-                            } finally {
-                                busy = false
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("Pedir sol devnet", color = VagalunColors.redSoft) }
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = VagalunShapes.small
+                ) {
+                    Text(if (busy) "Enviando..." else "Confirmar envio", color = Color.White, fontWeight = FontWeight.Bold)
+                }
             }
         }
 
-
-        Card(colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard), shape = RoundedCornerShape(18.dp)) {
-            Column(Modifier.padding(18.dp)) {
-                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                    Text("Seed phrase (chave mestra)", color = VagalunColors.textSecondary, fontSize = 12.sp)
-                    TextButton(onClick = { showSeed = !showSeed }) {
-                        Text(if (showSeed) "Ocultar" else "Mostrar", color = VagalunColors.red)
-                    }
+        // Segurança
+        AnimatedCard {
+            Column(Modifier.padding(VagalunSpacing.medium)) {
+                Text("Segurança", style = VagalunTypography.bodySecondary)
+                TextButton(onClick = { showSeed = !showSeed }, modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        if (showSeed) "Ocultar chave secreta" else "Ver chave secreta",
+                        color = VagalunColors.red
+                    )
                 }
                 if (showSeed) {
-                    Text(seedPhrase, color = VagalunColors.textPrimary, fontSize = 14.sp, modifier = Modifier.padding(top = 8.dp))
-                } else {
-                    Text("••• •••• ••• ••••• •• •••", color = VagalunColors.textSecondary, modifier = Modifier.padding(top = 8.dp))
+                    Spacer(Modifier.height(VagalunSpacing.small))
+                    Text(seedPhrase, style = VagalunTypography.body, textAlign = TextAlign.Center)
+                    Text(
+                        "Nunca compartilhe isso com ninguém.",
+                        color = VagalunColors.danger,
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(top = VagalunSpacing.small)
+                    )
                 }
             }
         }
-
-        Text(
-            "Nunca compartilhe isso com ninguém.",
-            color = VagalunColors.danger, fontSize = 12.sp
-        )
     }
 }
