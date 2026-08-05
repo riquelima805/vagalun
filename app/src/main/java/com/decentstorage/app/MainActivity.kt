@@ -11,6 +11,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -37,6 +38,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
@@ -80,16 +82,17 @@ import kotlin.math.sin
 // ===================== DESIGN TOKENS =====================
 object VagalunColors {
     val bg = Color(0xFF0D0D0D)
-    val bgCard = Color(0xFF1A1A1A)
-    val bgCard2 = Color(0xFF2A2A2A)
+    val bgCard = Color(0xFF15151A)
+    val bgCard2 = Color(0xFF232329)
     val red = Color(0xFFFF3B3B)
     val redSoft = Color(0xFFFF5A5F)
-    val redDim = Color(0xFF7A1116)
+    // redDim removido — era o "vinho" feio usado em preenchimentos de seleção.
+    // Seleção agora usa borda vermelha sólida (ver PrivacyOptionRow / FileRow).
     val textPrimary = Color(0xFFFFFFFF)
     val textSecondary = Color(0xFFB0B0B0)
     val danger = Color(0xFFFF4D4D)
     val warning = Color(0xFFFFB020)
-    val success = Color(0xFF4CAF50)
+    val success = Color(0xFF2ECC71)
 }
 
 object VagalunTypography {
@@ -740,10 +743,15 @@ fun VagalunHeader(notificationCount: Int = 0) {
     ) {
         // IMPORTANTE: salve a Image 2 do mockup como res/drawable/logo3.png antes de compilar,
         // ou troque a linha abaixo de volta para o Text("VAGALUN", ...) original.
+        // Proporção real do arquivo é 230x307 (retangular) — se estiver aparecendo redonda,
+        // o arquivo em res/drawable/logo3.png foi exportado/cortado errado, não é este Composable.
         Image(
             painter = painterResource(id = R.drawable.logo3),
             contentDescription = "Vagalun",
-            modifier = Modifier.height(30.dp)
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .height(52.dp)
+                .width(52.dp * (230f / 307f))
         )
 
         Box {
@@ -751,7 +759,7 @@ fun VagalunHeader(notificationCount: Int = 0) {
                 Icons.Filled.Notifications,
                 contentDescription = "Notificações",
                 tint = VagalunColors.textSecondary,
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier.size(26.dp)
             )
             if (notificationCount > 0) {
                 Box(
@@ -798,29 +806,34 @@ fun DashboardScreen(
 
         AnimatedCard {
             Column(Modifier.padding(VagalunSpacing.large)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        if (nodeActive) "🟢 Sistema ativo" else "⚪ Sistema pausado",
-                        style = VagalunTypography.titleMedium
-                    )
-                    Spacer(Modifier.weight(1f))
-                    if (nodeActive) {
-                        // Requer res/drawable/tree_node.xml (arquivo enviado junto com este código).
-                        Icon(
-                            painter = painterResource(id = R.drawable.tree_node),
-                            contentDescription = null,
-                            tint = VagalunColors.red,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                }
-                Spacer(Modifier.height(VagalunSpacing.small))
+                Text(
+                    if (nodeActive) "🟢 Sistema ativo" else "⚪ Sistema pausado",
+                    style = VagalunTypography.titleMedium
+                )
+                Spacer(Modifier.height(4.dp))
                 Text(
                     if (nodeActive) "Seu dispositivo está contribuindo com a rede"
                     else "Ative para começar a ganhar recompensas",
                     style = VagalunTypography.bodySecondary
                 )
+
                 Spacer(Modifier.height(VagalunSpacing.medium))
+
+                // Ilustração grande da árvore, como no mockup — antes estava um ícone
+                // pequeno (22.dp) ao lado do texto; agora ocupa a largura do card.
+                // Requer res/drawable/tree_node.xml (arquivo enviado junto com este código).
+                Icon(
+                    painter = painterResource(id = R.drawable.tree_node),
+                    contentDescription = null,
+                    tint = VagalunColors.red,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(130.dp)
+                        .alpha(if (nodeActive) 1f else 0.35f)
+                )
+
+                Spacer(Modifier.height(VagalunSpacing.medium))
+
                 var buttonScale by remember { mutableStateOf(1f) }
                 Button(
                     onClick = {
@@ -829,7 +842,7 @@ fun DashboardScreen(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(52.dp)
+                        .height(48.dp)
                         .scale(buttonScale),
                     shape = VagalunShapes.button,
                     colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.red)
@@ -838,7 +851,7 @@ fun DashboardScreen(
                         if (nodeActive) "DESATIVAR" else "ATIVAR AGORA",
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp
+                        fontSize = 14.sp
                     )
                 }
                 LaunchedEffect(buttonScale) {
@@ -1330,11 +1343,12 @@ fun UploadScreen(
 
 @Composable
 fun PrivacyOptionRow(option: FilePrivacy, selected: Boolean, onSelect: () -> Unit) {
+    // Antes usava um preenchimento "vinho" (redDim) — trocado por borda vermelha
+    // sólida sobre o fundo padrão do card, igual ao mockup.
     Card(
         onClick = onSelect,
-        colors = CardDefaults.cardColors(
-            containerColor = if (selected) VagalunColors.redDim.copy(alpha = 0.25f) else VagalunColors.bgCard
-        ),
+        colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard),
+        border = if (selected) BorderStroke(1.5.dp, VagalunColors.red) else null,
         shape = VagalunShapes.small,
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
     ) {
