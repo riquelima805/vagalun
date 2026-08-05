@@ -1,6 +1,4 @@
-// LRU bem simples baseado em Map (ordem de inserção == ordem de "recência").
-// Guarda blocos JÁ DECODIFICADOS (plaintext), que é o que dá o efeito "CDN":
-// bloco quente não precisa re-buscar shard nem rodar RS/AES de novo.
+
 
 class LRUCache {
   constructor(maxEntries = 256) {
