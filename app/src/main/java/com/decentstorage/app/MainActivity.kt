@@ -26,6 +26,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -50,6 +52,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.json.JSONObject
 import java.io.File
 import java.security.SecureRandom
@@ -59,18 +63,22 @@ import androidx.compose.foundation.clickable
 import androidx.compose.ui.graphics.asImageBitmap
 
 
+// Paleta oficial da marca: vermelho e preto.
 object VagalunColors {
-    val bg = Color(0xFF0B0E13)
-    val bgCard = Color(0xFF141924)
-    val bgCard2 = Color(0xFF1B2230)
-    val neonGreen = Color(0xFF00FFA3)
-    val neonCyan = Color(0xFF00E5FF)
-    val textPrimary = Color(0xFFE7F3F0)
-    val textSecondary = Color(0xFF8A97A8)
-    val danger = Color(0xFFFF5C5C)
-    val warning = Color(0xFFFFC24B)
+    val bg = Color(0xFF0A0A0B)
+    val bgCard = Color(0xFF161417)
+    val bgCard2 = Color(0xFF201B1D)
+    val red = Color(0xFFE31B23)
+    val redSoft = Color(0xFFFF5A5F)
+    val redDim = Color(0xFF7A1116)
+    val textPrimary = Color(0xFFF3EEEE)
+    val textSecondary = Color(0xFF9C9498)
+    val danger = Color(0xFFFF4D4D)
+    val warning = Color(0xFFFFB020)
 }
 
+// Cada usuário começa com 2 GB fixos gratuitos para guardar os próprios arquivos.
+const val FREE_STORAGE_BYTES: Long = 2L * 1024 * 1024 * 1024
 
 data class UiFileEntry(
     val fileId: String,
@@ -83,6 +91,38 @@ data class UiFileEntry(
 )
 
 enum class HealthState { HEALTHY, DEGRADED, CRITICAL }
+
+// Endereço do relay é publicado remotamente (JSON fixo). O app busca esse
+// arquivo sozinho, sem precisar de configuração manual do usuário nem de um
+// novo build quando a infraestrutura mudar.
+object RelayConfig {
+    private const val CONFIG_URL =
+        "https://raw.githubusercontent.com/riquelima805/adla-nft-market/refs/heads/main/reley.json"
+
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS)
+        .build()
+
+    fun fetchSignalingUrl(): String? {
+        return try {
+            val request = Request.Builder().url(CONFIG_URL).build()
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) return null
+                val body = resp.body?.string()?.trim()
+                if (body.isNullOrBlank()) return null
+                val json = JSONObject(body)
+                val url = json.optString(
+                    "signalingUrl",
+                    json.optString("url", json.optString("wss", ""))
+                )
+                url.trim().ifBlank { null }
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+}
 
 class MainActivity : ComponentActivity() {
 
@@ -97,10 +137,11 @@ class MainActivity : ComponentActivity() {
     private var signalingClient: SignalingClient? = null
     private var webRtcManager: WebRtcManager? = null
     private var selfNodeId: String? = null
-    
+
     private var selfCapacityBytes: Long = 15L * 1024 * 1024 * 1024
     private var selfDataDir: File? = null
-    
+
+    // Cache local do último relay conhecido, usado só se a busca remota falhar.
     private var selfSignalingUrl: String = ""
 
     // Usado só pro fallback de Relay quando o WebRTC direto não conecta (NAT ruim, sem TURN etc).
@@ -116,7 +157,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         prefs = getSharedPreferences("decentstorage", MODE_PRIVATE)
         selfCapacityBytes = prefs.getLong("quotaBytes", selfCapacityBytes)
-        
+
         selfCapacityBytes = ensureQuotaWithinPhysicalLimits(selfCapacityBytes)
         selfSignalingUrl = prefs.getString("signalingUrl", "") ?: ""
 
@@ -124,8 +165,8 @@ class MainActivity : ComponentActivity() {
             MaterialTheme(colorScheme = darkColorScheme(
                 background = VagalunColors.bg,
                 surface = VagalunColors.bgCard,
-                primary = VagalunColors.neonGreen,
-                secondary = VagalunColors.neonCyan
+                primary = VagalunColors.red,
+                secondary = VagalunColors.redSoft
             )) {
                 VagalunApp()
             }
@@ -134,7 +175,7 @@ class MainActivity : ComponentActivity() {
 
     private fun ensureQuotaWithinPhysicalLimits(requested: Long): Long {
         val maxOfferable = DeviceStorage.maxOfferableBytes(this)
-        return requested.coerceAtMost(maxOfferable).coerceAtLeast(1L * 1024 * 1024) 
+        return requested.coerceAtMost(maxOfferable).coerceAtLeast(1L * 1024 * 1024)
     }
 
     private fun ensureEngineStarted(seedPhrase: String, onReady: (walletAddr: String) -> Unit, onLog: (String) -> Unit) {
@@ -157,7 +198,7 @@ class MainActivity : ComponentActivity() {
             it.start()
         }
 
-        
+
 
         storageClient = StorageClient(reg)
 
@@ -166,14 +207,30 @@ class MainActivity : ComponentActivity() {
 
         DailyClaimWorker.schedule(applicationContext)
 
-        if (selfSignalingUrl.isNotBlank()) {
-            connectWan(selfSignalingUrl, onLog)
-        } else {
-            onLog("Nenhum servidor de signaling configurado. Configure em Config > Rede para conectar via internet.")
-        }
+        refreshRelayAndConnect(onLog)
 
         onLog("Motor iniciado. nodeId=$nodeId")
         onReady(wallet!!.publicKey.toString())
+    }
+
+    // Busca o endereço do relay no JSON fixo publicado remotamente e conecta a
+    // WAN com ele. Se a busca falhar, tenta usar o último endereço em cache.
+    private fun refreshRelayAndConnect(onLog: (String) -> Unit) {
+        val fetched = RelayConfig.fetchSignalingUrl()
+        when {
+            fetched != null -> {
+                selfSignalingUrl = fetched
+                prefs.edit().putString("signalingUrl", fetched).apply()
+                connectWan(fetched, onLog)
+            }
+            selfSignalingUrl.isNotBlank() -> {
+                onLog("Relay remoto indisponível agora, usando último endereço salvo.")
+                connectWan(selfSignalingUrl, onLog)
+            }
+            else -> {
+                onLog("Relay ainda não disponível. O node segue ativo localmente (Wi-Fi) e tentará novamente em breve.")
+            }
+        }
     }
 
     private fun connectWan(signalingUrl: String, onLog: (String) -> Unit) {
@@ -183,6 +240,7 @@ class MainActivity : ComponentActivity() {
         val reqHandler = ShardRequestHandler(nodeId, selfCapacityBytes, selfDataDir!!, applicationContext) { gossipPayload ->
             registry?.handleIncomingGossip(gossipPayload) ?: JSONObject()
         }
+
         val sc = SignalingClient(signalingUrl, nodeId, onSignal = { _, _ -> }) { connected ->
             onLog(if (connected) "Signaling conectado (WAN ativa)" else "Signaling desconectado")
         }
@@ -201,12 +259,12 @@ class MainActivity : ComponentActivity() {
         webRtcManager = mgr
         sc.onSignal = { from, payload -> mgr.handleSignal(from, payload) }
 
-      
+
         sc.onPeerList = { peerIds ->
             val others = peerIds.filter { it != nodeId }
             if (others.isNotEmpty()) onLog("Peers vistos no signaling: ${others.joinToString()}")
             others.forEach { peerId ->
-               
+
                 if (nodeId < peerId) {
                     mgr.connectToPeer(peerId)
                     scheduleRelayFallback(peerId, sc, reqHandler, onLog)
@@ -242,7 +300,7 @@ class MainActivity : ComponentActivity() {
         sc.connect()
     }
 
-    
+
     private fun scheduleRelayFallback(
         peerId: String,
         sc: SignalingClient,
@@ -293,26 +351,26 @@ class MainActivity : ComponentActivity() {
             scope.launch {
                 withContext(Dispatchers.IO) {
                     try {
-                       
+
                         ensureEngineStarted(seedPhrase, onReady = { addr ->
                             walletAddress = addr
                         }, onLog = { log(it) })
-                        
-                        
+
+
                         log("Verificando/Inicializando conta on-chain...")
                         val sig = anchorClient?.initAccount()
-                        
+
                         if (sig != null && sig.startsWith("ERRO")) {
-                           
+
                             log("Conta já inicializada ou saldo de SOL insuficiente.")
                         } else {
                             log("Conta on-chain criada com sucesso! Sig: $sig")
                         }
 
-                        
+
                         startedAt = System.currentTimeMillis()
                         nodeActive = true
-                        
+
                     } catch (e: Exception) {
                         log("Erro ao iniciar: ${e.message}")
                     }
@@ -345,9 +403,7 @@ class MainActivity : ComponentActivity() {
                         onToggleNode = { turningOn ->
                             if (turningOn) {
                                 startNode()
-                                if (selfSignalingUrl.isNotBlank()) {
-                                    scope.launch(Dispatchers.IO) { connectWan(selfSignalingUrl) { log(it) } }
-                                }
+                                scope.launch(Dispatchers.IO) { refreshRelayAndConnect { log(it) } }
                             } else {
                                 disconnectWan()
                                 nodeActive = false
@@ -358,8 +414,16 @@ class MainActivity : ComponentActivity() {
                         uptimeMs = if (startedAt > 0) System.currentTimeMillis() - startedAt else 0,
                         walletAddress = walletAddress,
                         capacityGb = quotaGb,
+                        maxOfferableGb = DeviceStorage.maxOfferableGb(this@MainActivity),
+                        onQuotaChange = { newGb ->
+                            val maxGb = DeviceStorage.maxOfferableGb(this@MainActivity)
+                            val clamped = newGb.coerceAtMost(maxGb).coerceAtLeast(1)
+                            quotaGb = clamped
+                            selfCapacityBytes = clamped.toLong() * 1024 * 1024 * 1024
+                            prefs.edit().putLong("quotaBytes", selfCapacityBytes).apply()
+                        },
                         usedFiles = files.size,
-                        onNavFiles = { navController.navigate("files") },
+                        usedFreeBytes = files.sumOf { it.sizeBytes },
                         logLines = logLines
                     )
                 }
@@ -435,17 +499,7 @@ class MainActivity : ComponentActivity() {
                     )
                 }
                 composable("settings") {
-                    var signalingUrlField by remember { mutableStateOf(selfSignalingUrl) }
                     SettingsScreen(
-                        quotaGb = quotaGb,
-                        maxOfferableGb = DeviceStorage.maxOfferableGb(this@MainActivity),
-                        onQuotaChange = { newGb ->
-                            val maxGb = DeviceStorage.maxOfferableGb(this@MainActivity)
-                            val clamped = newGb.coerceAtMost(maxGb).coerceAtLeast(1)
-                            quotaGb = clamped
-                            selfCapacityBytes = clamped.toLong() * 1024 * 1024 * 1024
-                            prefs.edit().putLong("quotaBytes", selfCapacityBytes).apply()
-                        },
                         wifiOnly = wifiOnly,
                         onWifiOnlyChange = { wifiOnly = it; prefs.edit().putBoolean("wifiOnly", it).apply() },
                         backgroundSync = backgroundSync,
@@ -455,16 +509,6 @@ class MainActivity : ComponentActivity() {
                             var freed = 0L
                             dir?.listFiles()?.forEach { f -> freed += f.length(); f.delete() }
                             log("Cache limpo: ${freed / 1024} KB liberados")
-                        },
-                        signalingUrl = signalingUrlField,
-                        onSignalingUrlChange = { signalingUrlField = it },
-                        onSignalingUrlSave = {
-                            selfSignalingUrl = signalingUrlField.trim()
-                            prefs.edit().putString("signalingUrl", selfSignalingUrl).apply()
-                            if (nodeActive && selfSignalingUrl.isNotBlank()) {
-                                scope.launch(Dispatchers.IO) { connectWan(selfSignalingUrl) { log(it) } }
-                                log("Reconectando WAN com nova URL...")
-                            }
                         }
                     )
                 }
@@ -503,12 +547,79 @@ fun VagalunBottomBar(navController: NavHostController) {
                 icon = { Icon(icon, contentDescription = label) },
                 label = { Text(label, fontSize = 11.sp) },
                 colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = VagalunColors.neonGreen,
-                    selectedTextColor = VagalunColors.neonGreen,
+                    selectedIconColor = VagalunColors.red,
+                    selectedTextColor = VagalunColors.red,
                     unselectedIconColor = VagalunColors.textSecondary,
                     unselectedTextColor = VagalunColors.textSecondary,
                     indicatorColor = VagalunColors.bgCard2
                 )
+            )
+        }
+    }
+}
+
+
+@Composable
+fun NodePulse(active: Boolean, size: Int = 84) {
+    val infiniteTransition = rememberInfiniteTransition(label = "nodePulse")
+    val ringScale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.9f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1600, easing = LinearOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "ringScale"
+    )
+    val ringAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.55f,
+        targetValue = 0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1600, easing = LinearOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "ringAlpha"
+    )
+    val coreScale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.06f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "coreScale"
+    )
+
+    Box(Modifier.size(size.dp), contentAlignment = Alignment.Center) {
+        if (active) {
+            Box(
+                Modifier
+                    .size((size * 0.72f).dp)
+                    .scale(ringScale)
+                    .clip(CircleShape)
+                    .background(VagalunColors.red.copy(alpha = ringAlpha))
+            )
+        }
+        Box(
+            Modifier
+                .size((size * 0.72f).dp)
+                .scale(if (active) coreScale else 1f)
+                .clip(CircleShape)
+                .background(
+                    Brush.radialGradient(
+                        colors = if (active)
+                            listOf(VagalunColors.redSoft, VagalunColors.red)
+                        else
+                            listOf(VagalunColors.bgCard2, VagalunColors.bgCard2)
+                    )
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Filled.Bolt,
+                contentDescription = null,
+                tint = if (active) Color.White else VagalunColors.textSecondary,
+                modifier = Modifier.size((size * 0.34f).dp)
             )
         }
     }
@@ -523,10 +634,14 @@ fun DashboardScreen(
     uptimeMs: Long,
     walletAddress: String,
     capacityGb: Int,
+    maxOfferableGb: Int,
+    onQuotaChange: (Int) -> Unit,
     usedFiles: Int,
-    onNavFiles: () -> Unit,
+    usedFreeBytes: Long,
     logLines: List<String> = emptyList()
 ) {
+    var sliderValue by remember(capacityGb) { mutableStateOf(capacityGb.toFloat().coerceAtMost(maxOfferableGb.toFloat())) }
+
     Column(
         Modifier
             .fillMaxSize()
@@ -534,13 +649,9 @@ fun DashboardScreen(
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("", fontSize = 28.sp)
-            Spacer(Modifier.width(8.dp))
-            Text("VAGALUN", color = VagalunColors.neonGreen, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        }
+        Text("VAGALUN", color = VagalunColors.red, fontSize = 24.sp, fontWeight = FontWeight.Bold)
 
-        
+        // Status do node com animação quando ativo
         Card(
             colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard),
             shape = RoundedCornerShape(20.dp),
@@ -551,30 +662,34 @@ fun DashboardScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Text(
-                        if (nodeActive) "Ativo" else "Adormecido",
-                        color = VagalunColors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp
-                    )
-                    Text(
-                        if (nodeActive) "Participando da rede agora" else "Toque para ativar",
-                        color = VagalunColors.textSecondary, fontSize = 12.sp
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    NodePulse(active = nodeActive)
+                    Spacer(Modifier.width(14.dp))
+                    Column {
+                        Text(
+                            if (nodeActive) "Ativo" else "Adormecido",
+                            color = VagalunColors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp
+                        )
+                        Text(
+                            if (nodeActive) "Participando da rede agora" else "Toque para ativar",
+                            color = VagalunColors.textSecondary, fontSize = 12.sp
+                        )
+                    }
                 }
                 Switch(
                     checked = nodeActive,
                     onCheckedChange = onToggleNode,
                     colors = SwitchDefaults.colors(
-                        checkedThumbColor = VagalunColors.neonGreen,
-                        checkedTrackColor = VagalunColors.neonGreen.copy(alpha = 0.35f)
+                        checkedThumbColor = VagalunColors.red,
+                        checkedTrackColor = VagalunColors.red.copy(alpha = 0.35f)
                     )
                 )
             }
         }
 
-        
+
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StatChip(Modifier.weight(1f), " $peersCount", "Nodes ativos")
+            StatChip(Modifier.weight(1f), "$peersCount", "Nodes ativos")
             StatChip(Modifier.weight(1f), formatUptime(uptimeMs), "uptime")
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -589,16 +704,49 @@ fun DashboardScreen(
             )
         }
 
-        Button(
-            onClick = onNavFiles,
-            colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.neonGreen),
-            shape = RoundedCornerShape(14.dp),
-            modifier = Modifier.fillMaxWidth().height(52.dp)
+        // Seção de armazenamento (antes ficava em Configurações)
+        Card(
+            colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard),
+            shape = RoundedCornerShape(20.dp),
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Ver meus arquivos", color = Color.Black, fontWeight = FontWeight.Bold)
+            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text("Armazenamento", color = VagalunColors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                        Text("Seu plano gratuito", color = VagalunColors.textSecondary, fontSize = 12.sp)
+                        val usedGbText = "%.2f".format(usedFreeBytes / (1024.0 * 1024 * 1024))
+                        Text("$usedGbText GB de 2 GB", color = VagalunColors.textPrimary, fontSize = 12.sp)
+                    }
+                    LinearProgressIndicator(
+                        progress = (usedFreeBytes.toFloat() / FREE_STORAGE_BYTES.toFloat()).coerceIn(0f, 1f),
+                        modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
+                        color = VagalunColors.red,
+                        trackColor = VagalunColors.bgCard2
+                    )
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                        Text("Você está compartilhando", color = VagalunColors.textSecondary, fontSize = 12.sp)
+                        Text("${sliderValue.toInt()} GB", color = VagalunColors.textPrimary, fontSize = 12.sp)
+                    }
+                    Slider(
+                        value = sliderValue,
+                        onValueChange = { sliderValue = it },
+                        onValueChangeFinished = { onQuotaChange(sliderValue.toInt()) },
+                        valueRange = 1f..maxOfferableGb.toFloat().coerceAtLeast(1f),
+                        colors = SliderDefaults.colors(thumbColor = VagalunColors.red, activeTrackColor = VagalunColors.red)
+                    )
+                    Text(
+                        "Máximo disponível neste aparelho: $maxOfferableGb GB",
+                        color = VagalunColors.textSecondary, fontSize = 11.sp
+                    )
+                }
+            }
         }
 
-        
         if (logLines.isNotEmpty()) {
             Card(
                 colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard),
@@ -635,7 +783,7 @@ fun StatChip(modifier: Modifier = Modifier, value: String, label: String) {
         shape = RoundedCornerShape(16.dp)
     ) {
         Column(Modifier.padding(16.dp)) {
-            Text(value, color = VagalunColors.neonCyan, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Text(value, color = VagalunColors.redSoft, fontWeight = FontWeight.Bold, fontSize = 18.sp)
             Text(label, color = VagalunColors.textSecondary, fontSize = 11.sp)
         }
     }
@@ -689,10 +837,10 @@ fun FilesScreen(
 
         FloatingActionButton(
             onClick = onUpload,
-            containerColor = VagalunColors.neonGreen,
+            containerColor = VagalunColors.red,
             modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp)
         ) {
-            Icon(Icons.Filled.Add, contentDescription = "Enviar arquivo", tint = Color.Black)
+            Icon(Icons.Filled.Add, contentDescription = "Enviar arquivo", tint = Color.White)
         }
     }
 }
@@ -702,7 +850,7 @@ fun FileRow(entry: UiFileEntry, onClick: () -> Unit, onDelete: () -> Unit) {
     var showConfirm by remember { mutableStateOf(false) }
     val health = if (entry.k <= entry.n - 2) HealthState.HEALTHY else if (entry.k < entry.n) HealthState.DEGRADED else HealthState.CRITICAL
     val healthColor = when (health) {
-        HealthState.HEALTHY -> VagalunColors.neonGreen
+        HealthState.HEALTHY -> VagalunColors.red
         HealthState.DEGRADED -> VagalunColors.warning
         HealthState.CRITICAL -> VagalunColors.danger
     }
@@ -724,7 +872,7 @@ fun FileRow(entry: UiFileEntry, onClick: () -> Unit, onDelete: () -> Unit) {
                     else -> Icons.Filled.InsertDriveFile
                 },
                 contentDescription = null,
-                tint = VagalunColors.neonCyan,
+                tint = VagalunColors.redSoft,
                 modifier = Modifier.size(28.dp)
             )
             Spacer(Modifier.width(12.dp))
@@ -781,7 +929,7 @@ fun MediaViewerScreen(
                 Modifier.align(Alignment.Center),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                CircularProgressIndicator(color = VagalunColors.neonGreen)
+                CircularProgressIndicator(color = VagalunColors.red)
                 Spacer(Modifier.height(12.dp))
                 Text("Buscando shards na rede...", color = VagalunColors.textSecondary)
             }
@@ -802,7 +950,7 @@ fun MediaViewerScreen(
             }
         }
 
-        
+
         Row(
             Modifier.fillMaxWidth().align(Alignment.TopCenter).padding(12.dp),
             horizontalArrangement = Arrangement.SpaceBetween
@@ -815,16 +963,6 @@ fun MediaViewerScreen(
             }
         }
     }
-}
-
-@Composable
-fun BuyPackageButton(label: String, enabled: Boolean, onClick: () -> Unit) {
-    Button(
-        enabled = enabled,
-        onClick = onClick,
-        colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.bgCard2),
-        modifier = Modifier.fillMaxWidth().height(48.dp)
-    ) { Text("Comprar $label", color = VagalunColors.neonGreen) }
 }
 
 @Composable
@@ -856,44 +994,17 @@ fun VideoPlayerFromBytes(bytes: ByteArray, fileName: String) {
 
 @Composable
 fun SettingsScreen(
-    quotaGb: Int,
-    maxOfferableGb: Int,
-    onQuotaChange: (Int) -> Unit,
     wifiOnly: Boolean,
     onWifiOnlyChange: (Boolean) -> Unit,
     backgroundSync: Boolean,
     onBackgroundSyncChange: (Boolean) -> Unit,
-    onClearDeadShards: () -> Unit,
-    signalingUrl: String,
-    onSignalingUrlChange: (String) -> Unit,
-    onSignalingUrlSave: () -> Unit
+    onClearDeadShards: () -> Unit
 ) {
-    var sliderValue by remember { mutableStateOf(quotaGb.toFloat().coerceAtMost(maxOfferableGb.toFloat())) }
-
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         Text("Configurações", color = VagalunColors.textPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-
-        Card(colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard), shape = RoundedCornerShape(18.dp)) {
-            Column(Modifier.padding(18.dp)) {
-                Text("Cota de disco cedida", color = VagalunColors.textSecondary, fontSize = 12.sp)
-                Text("${sliderValue.toInt()} GB", color = VagalunColors.neonGreen, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                Slider(
-                    value = sliderValue,
-                    onValueChange = { sliderValue = it },
-                    onValueChangeFinished = { onQuotaChange(sliderValue.toInt()) },
-                    
-                    valueRange = 1f..maxOfferableGb.toFloat().coerceAtLeast(1f),
-                    colors = SliderDefaults.colors(thumbColor = VagalunColors.neonGreen, activeTrackColor = VagalunColors.neonGreen)
-                )
-                Text(
-                    "Máximo disponível agora neste aparelho: $maxOfferableGb GB)",
-                    color = VagalunColors.textSecondary, fontSize = 11.sp
-                )
-            }
-        }
 
         Card(colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard), shape = RoundedCornerShape(18.dp)) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -902,30 +1013,10 @@ fun SettingsScreen(
             }
         }
 
-        
-        Card(colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard), shape = RoundedCornerShape(18.dp)) {
-            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Rede (WAN / internet)", color = VagalunColors.textPrimary, fontWeight = FontWeight.Bold)
-                Text(
-                    "Endereço do servidor de signaling (wss://...)." +
-                        "" +
-                        "",
-                    color = VagalunColors.textSecondary, fontSize = 11.sp
-                )
-                OutlinedTextField(
-                    value = signalingUrl,
-                    onValueChange = onSignalingUrlChange,
-                    label = { Text("wss://vagalun.com") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Button(
-                    onClick = onSignalingUrlSave,
-                    colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.neonCyan),
-                    modifier = Modifier.fillMaxWidth().height(48.dp)
-                ) { Text("Salvar e conectar", color = Color.Black, fontWeight = FontWeight.Bold) }
-            }
-        }
+        Text(
+            "O node se conecta à rede automaticamente, sem precisar configurar nada manualmente.",
+            color = VagalunColors.textSecondary, fontSize = 12.sp
+        )
 
         Button(
             onClick = onClearDeadShards,
@@ -933,7 +1024,7 @@ fun SettingsScreen(
             shape = RoundedCornerShape(14.dp),
             modifier = Modifier.fillMaxWidth().height(52.dp)
         ) {
-            Icon(Icons.Filled.CleaningServices, contentDescription = null, tint = VagalunColors.neonCyan)
+            Icon(Icons.Filled.CleaningServices, contentDescription = null, tint = VagalunColors.redSoft)
             Spacer(Modifier.width(8.dp))
             Text("Limpar cache", color = VagalunColors.textPrimary)
         }
@@ -950,7 +1041,7 @@ fun SettingsToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean
         Text(label, color = VagalunColors.textPrimary, fontSize = 14.sp)
         Switch(
             checked = checked, onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(checkedThumbColor = VagalunColors.neonGreen, checkedTrackColor = VagalunColors.neonGreen.copy(alpha = 0.35f))
+            colors = SwitchDefaults.colors(checkedThumbColor = VagalunColors.red, checkedTrackColor = VagalunColors.red.copy(alpha = 0.35f))
         )
     }
 }
@@ -969,21 +1060,21 @@ fun WalletOnboardingScreen(onSeedReady: (String) -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            Text(" VAGALUN", color = VagalunColors.neonGreen, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+            Text("VAGALUN", color = VagalunColors.red, fontSize = 30.sp, fontWeight = FontWeight.Bold)
             Text("Sua chave, sua carteira Solana.", color = VagalunColors.textSecondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
 
             when (mode) {
                 "choose" -> {
                     Button(
                         onClick = { generatedSeed = KeyManager.generateSeedPhrase(); mode = "create" },
-                        colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.neonGreen),
+                        colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.red),
                         modifier = Modifier.fillMaxWidth().height(52.dp)
-                    ) { Text("Criar novo cofre", color = Color.Black, fontWeight = FontWeight.Bold) }
+                    ) { Text("Criar novo cofre", color = Color.White, fontWeight = FontWeight.Bold) }
 
                     OutlinedButton(
                         onClick = { mode = "restore" },
                         modifier = Modifier.fillMaxWidth().height(52.dp)
-                    ) { Text("Já tenho uma seed phrase", color = VagalunColors.neonCyan) }
+                    ) { Text("Já tenho uma seed phrase", color = VagalunColors.redSoft) }
                 }
                 "create" -> {
                     Card(colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard), shape = RoundedCornerShape(16.dp)) {
@@ -994,15 +1085,15 @@ fun WalletOnboardingScreen(onSeedReady: (String) -> Unit) {
                     }
                     Text("Anote as 12 palavras em papel. Sem elas você perde acesso pra sempre.", color = VagalunColors.warning, fontSize = 12.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = confirmed, onCheckedChange = { confirmed = it }, colors = CheckboxDefaults.colors(checkedColor = VagalunColors.neonGreen))
+                        Checkbox(checked = confirmed, onCheckedChange = { confirmed = it }, colors = CheckboxDefaults.colors(checkedColor = VagalunColors.red))
                         Text("Já anotei em local seguro", color = VagalunColors.textPrimary, fontSize = 12.sp)
                     }
                     Button(
                         enabled = confirmed,
                         onClick = { onSeedReady(generatedSeed) },
-                        colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.neonGreen),
+                        colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.red),
                         modifier = Modifier.fillMaxWidth().height(52.dp)
-                    ) { Text("Continuar", color = Color.Black, fontWeight = FontWeight.Bold) }
+                    ) { Text("Continuar", color = Color.White, fontWeight = FontWeight.Bold) }
                 }
                 "restore" -> {
                     OutlinedTextField(
@@ -1014,9 +1105,9 @@ fun WalletOnboardingScreen(onSeedReady: (String) -> Unit) {
                         onClick = {
                             if (KeyManager.validateSeedPhrase(restoreInput)) onSeedReady(restoreInput)
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.neonGreen),
+                        colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.red),
                         modifier = Modifier.fillMaxWidth().height(52.dp)
-                    ) { Text("Restaurar", color = Color.Black, fontWeight = FontWeight.Bold) }
+                    ) { Text("Restaurar", color = Color.White, fontWeight = FontWeight.Bold) }
                 }
             }
         }
@@ -1057,25 +1148,25 @@ fun WalletScreen(
     ) {
         Text("Carteira", color = VagalunColors.textPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
 
-        
+
         Card(colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard), shape = RoundedCornerShape(18.dp)) {
             Column(Modifier.padding(18.dp)) {
                 Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                     Text("Saldo (devnet)", color = VagalunColors.textSecondary, fontSize = 12.sp)
                     IconButton(onClick = { scope.launch(Dispatchers.IO) { refreshBalance() } }) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "Atualizar", tint = VagalunColors.neonCyan)
+                        Icon(Icons.Filled.Refresh, contentDescription = "Atualizar", tint = VagalunColors.redSoft)
                     }
                 }
                 val lamports = balanceLamports
                 Text(
                     if (lamports == null) "carregando..." else "%.6f SOL".format(lamports / 1_000_000_000.0),
-                    color = VagalunColors.neonGreen, fontSize = 26.sp, fontWeight = FontWeight.Bold
+                    color = VagalunColors.red, fontSize = 26.sp, fontWeight = FontWeight.Bold
                 )
                 Text("Endereço: ${walletAddress.ifEmpty { "iniciando..." }}", color = VagalunColors.textSecondary, fontSize = 12.sp)
             }
         }
 
-      
+
         Card(colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard), shape = RoundedCornerShape(18.dp)) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Enviar SOL", color = VagalunColors.textPrimary, fontWeight = FontWeight.Bold)
@@ -1106,11 +1197,11 @@ fun WalletScreen(
                             }
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.neonGreen),
+                    colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.red),
                     modifier = Modifier.fillMaxWidth().height(48.dp)
-                ) { Text(if (busy) "Enviando..." else "Enviar SOL", color = Color.Black, fontWeight = FontWeight.Bold) }
+                ) { Text(if (busy) "Enviando..." else "Enviar SOL", color = Color.White, fontWeight = FontWeight.Bold) }
 
-                
+
                 OutlinedButton(
                     enabled = !busy,
                     onClick = {
@@ -1128,55 +1219,17 @@ fun WalletScreen(
                         }
                     },
                     modifier = Modifier.fillMaxWidth()
-                ) { Text("Pedir sol devnet", color = VagalunColors.neonCyan) }
+                ) { Text("Pedir sol devnet", color = VagalunColors.redSoft) }
             }
         }
 
-        
-        Card(colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard), shape = RoundedCornerShape(18.dp)) {
-    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("Comprar espaço extra", color = VagalunColors.textPrimary, fontWeight = FontWeight.Bold)
-        Text("Paga on-chain via purchase_tier, direto no contrato.", color = VagalunColors.textSecondary, fontSize = 11.sp)
 
-        fun buy(label: String, gb: Long) {
-            onLog("Cliquei em Comprar $label")
-            busy = true
-            scope.launch(Dispatchers.IO) {
-                try {
-                    onLog("anchorClient é null? ${anchorClient == null}")
-                    val sig = anchorClient?.purchaseTier(gb)
-                    if (sig != null && sig.startsWith("ERRO")) {
-                        // sendSingle() do AnchorStorageClient nunca propaga exceção — sempre
-                        // retorna uma String. Se começar com "ERRO", a transação NUNCA foi
-                        // confirmada on-chain (por isso o saldo não muda). Aqui mostramos a
-                        // causa real, que normalmente é conta inexistente (market_config ou
-                        // user_account nunca inicializados) ou programa não implantado nesse RPC.
-                        onLog("Falha real na compra de $label: $sig")
-                    } else {
-                        onLog("Pacote $label comprado. Assinatura: $sig")
-                    }
-                    refreshBalance()
-                } catch (e: Exception) {
-                    onLog("Erro na compra de $label: ${e.message}")
-                } finally {
-                    busy = false
-                }
-            }
-        }
-
-        BuyPackageButton("+50 GB", !busy) { buy("+50 GB", 50L) }
-        BuyPackageButton("+100 GB", !busy) { buy("+100 GB", 100L) }
-        BuyPackageButton("+1 TB", !busy) { buy("+1 TB", 1000L) }
-    }
-}
-
-        
         Card(colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard), shape = RoundedCornerShape(18.dp)) {
             Column(Modifier.padding(18.dp)) {
                 Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                     Text("Seed phrase (chave mestra)", color = VagalunColors.textSecondary, fontSize = 12.sp)
                     TextButton(onClick = { showSeed = !showSeed }) {
-                        Text(if (showSeed) "Ocultar" else "Mostrar", color = VagalunColors.neonGreen)
+                        Text(if (showSeed) "Ocultar" else "Mostrar", color = VagalunColors.red)
                     }
                 }
                 if (showSeed) {
