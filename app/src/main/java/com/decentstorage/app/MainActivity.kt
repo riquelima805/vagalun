@@ -25,8 +25,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.graphicsLayer
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -371,7 +371,6 @@ class MainActivity : ComponentActivity() {
         val snackbarHostState = remember { SnackbarHostState() }
         var showSnackbarMessage by remember { mutableStateOf<String?>(null) }
 
-        // Exibe snackbar quando houver mensagem
         LaunchedEffect(showSnackbarMessage) {
             showSnackbarMessage?.let {
                 snackbarHostState.showSnackbar(it)
@@ -605,7 +604,7 @@ fun VagalunBottomBar(navController: NavHostController) {
     }
 }
 
-// ===================== DASHBOARD (COM ANIMAÇÕES) =====================
+// ===================== DASHBOARD =====================
 @Composable
 fun DashboardScreen(
     nodeActive: Boolean,
@@ -624,13 +623,11 @@ fun DashboardScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(VagalunSpacing.large)
-            .graphicsLayer { alpha = alphaAnim },
+            .alpha(alphaAnim),
         verticalArrangement = Arrangement.spacedBy(VagalunSpacing.large)
     ) {
-        // Logo
         Text("VAGALUN", style = VagalunTypography.titleLarge, color = VagalunColors.red)
 
-        // Card de status + botão principal
         AnimatedCard {
             Column(Modifier.padding(VagalunSpacing.large)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -650,7 +647,6 @@ fun DashboardScreen(
                     style = VagalunTypography.bodySecondary
                 )
                 Spacer(Modifier.height(VagalunSpacing.medium))
-                // Botão com animação de escala ao clicar
                 var buttonScale by remember { mutableStateOf(1f) }
                 Button(
                     onClick = {
@@ -671,7 +667,6 @@ fun DashboardScreen(
                         fontSize = 15.sp
                     )
                 }
-                // Restaura escala após clique
                 LaunchedEffect(buttonScale) {
                     if (buttonScale < 1f) {
                         delay(150)
@@ -681,7 +676,6 @@ fun DashboardScreen(
             }
         }
 
-        // Card de armazenamento
         AnimatedCard {
             Column(Modifier.padding(VagalunSpacing.large)) {
                 Text("Armazenamento", style = VagalunTypography.titleMedium)
@@ -717,14 +711,10 @@ fun DashboardScreen(
                         inactiveTrackColor = VagalunColors.bgCard2
                     )
                 )
-                Text(
-                    "Máximo disponível: $maxOfferableGb GB",
-                    style = VagalunTypography.small
-                )
+                Text("Máximo disponível: $maxOfferableGb GB", style = VagalunTypography.small)
             }
         }
 
-        // Wallet resumido
         if (walletAddress.isNotEmpty()) {
             AnimatedCard {
                 Row(Modifier.padding(VagalunSpacing.medium), verticalAlignment = Alignment.CenterVertically) {
@@ -740,7 +730,7 @@ fun DashboardScreen(
     }
 }
 
-// Helper: Card com animação de fade-in e leve elevação
+// Helper: Card com animação de fade-in e escala
 @Composable
 fun AnimatedCard(content: @Composable () -> Unit) {
     val transition = updateTransition(targetState = true, label = "card")
@@ -753,11 +743,8 @@ fun AnimatedCard(content: @Composable () -> Unit) {
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .graphicsLayer {
-                this.alpha = alpha
-                this.scaleX = scale
-                this.scaleY = scale
-            }
+            .alpha(alpha)
+            .scale(scale)
     ) {
         content()
     }
@@ -918,10 +905,7 @@ fun MediaViewerScreen(
                 Modifier.align(Alignment.Center),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                CircularProgressIndicator(
-                    color = VagalunColors.red,
-                    modifier = Modifier.size(48.dp)
-                )
+                CircularProgressIndicator(color = VagalunColors.red, modifier = Modifier.size(48.dp))
                 Spacer(Modifier.height(VagalunSpacing.small))
                 Text("Buscando shards na rede...", style = VagalunTypography.bodySecondary)
             }
@@ -1168,7 +1152,6 @@ fun WalletScreen(
     ) {
         Text("Carteira", style = VagalunTypography.titleLarge)
 
-        // Saldo
         AnimatedCard {
             Column(Modifier.padding(VagalunSpacing.large)) {
                 Text("Saldo", style = VagalunTypography.bodySecondary)
@@ -1185,10 +1168,9 @@ fun WalletScreen(
             }
         }
 
-        // Ações Enviar / Receber
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(VagalunSpacing.small)) {
             Button(
-                onClick = { /* O formulário de envio está abaixo */ },
+                onClick = { /* O formulário está abaixo */ },
                 modifier = Modifier.weight(1f).height(48.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.red),
                 shape = VagalunShapes.small
@@ -1208,7 +1190,6 @@ fun WalletScreen(
             }
         }
 
-        
         if (walletAddress.isNotEmpty()) {
             AnimatedCard {
                 Row(Modifier.padding(VagalunSpacing.medium), verticalAlignment = Alignment.CenterVertically) {
@@ -1224,7 +1205,6 @@ fun WalletScreen(
             }
         }
 
-        
         AnimatedCard {
             Column(Modifier.padding(VagalunSpacing.medium), verticalArrangement = Arrangement.spacedBy(VagalunSpacing.small)) {
                 Text("Enviar SOL", style = VagalunTypography.titleMedium)
@@ -1268,7 +1248,6 @@ fun WalletScreen(
             }
         }
 
-        // Segurança
         AnimatedCard {
             Column(Modifier.padding(VagalunSpacing.medium)) {
                 Text("Segurança", style = VagalunTypography.bodySecondary)
