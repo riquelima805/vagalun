@@ -26,11 +26,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.graphicsLayer
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -53,6 +55,7 @@ import com.decentstorage.app.wallet.SolanaWallet
 import com.decentstorage.app.work.DailyClaimWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -63,7 +66,7 @@ import java.security.SecureRandom
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
-
+// ===================== DESIGN TOKENS =====================
 object VagalunColors {
     val bg = Color(0xFF0D0D0D)
     val bgCard = Color(0xFF1A1A1A)
@@ -79,7 +82,7 @@ object VagalunColors {
 }
 
 object VagalunTypography {
-    val titleLarge = androidx.compose.ui.text.TextStyle(
+    val titleLarge = TextStyle(
         fontSize = 26.sp,
         fontWeight = FontWeight.Bold,
         color = VagalunColors.textPrimary
@@ -116,8 +119,7 @@ object VagalunSpacing {
     val xlarge = 24.dp
 }
 
-
-
+// ===================== RELAY CONFIG =====================
 object RelayConfig {
     private const val CONFIG_URL =
         "https://raw.githubusercontent.com/riquelima805/adla-nft-market/refs/heads/main/reley.json"
@@ -144,7 +146,7 @@ object RelayConfig {
     }
 }
 
-
+// ===================== DATA CLASSES =====================
 const val FREE_STORAGE_BYTES: Long = 2L * 1024 * 1024 * 1024
 
 data class UiFileEntry(
@@ -159,7 +161,7 @@ data class UiFileEntry(
 
 enum class HealthState { HEALTHY, DEGRADED, CRITICAL }
 
-
+// ===================== MAIN ACTIVITY =====================
 class MainActivity : ComponentActivity() {
 
     private lateinit var prefs: SharedPreferences
@@ -351,7 +353,7 @@ class MainActivity : ComponentActivity() {
         pickFile.launch("*/*")
     }
 
-    
+    // ===================== COMPOSE UI =====================
     @Composable
     fun VagalunApp() {
         val navController = rememberNavController()
@@ -572,7 +574,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-
+// ===================== BOTTOM BAR =====================
 @Composable
 fun VagalunBottomBar(navController: NavHostController) {
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -603,7 +605,7 @@ fun VagalunBottomBar(navController: NavHostController) {
     }
 }
 
-
+// ===================== DASHBOARD (COM ANIMAÇÕES) =====================
 @Composable
 fun DashboardScreen(
     nodeActive: Boolean,
@@ -628,7 +630,7 @@ fun DashboardScreen(
         // Logo
         Text("VAGALUN", style = VagalunTypography.titleLarge, color = VagalunColors.red)
 
-      
+        // Card de status + botão principal
         AnimatedCard {
             Column(Modifier.padding(VagalunSpacing.large)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -648,7 +650,7 @@ fun DashboardScreen(
                     style = VagalunTypography.bodySecondary
                 )
                 Spacer(Modifier.height(VagalunSpacing.medium))
-                
+                // Botão com animação de escala ao clicar
                 var buttonScale by remember { mutableStateOf(1f) }
                 Button(
                     onClick = {
@@ -669,7 +671,7 @@ fun DashboardScreen(
                         fontSize = 15.sp
                     )
                 }
-                
+                // Restaura escala após clique
                 LaunchedEffect(buttonScale) {
                     if (buttonScale < 1f) {
                         delay(150)
@@ -679,7 +681,7 @@ fun DashboardScreen(
             }
         }
 
-       
+        // Card de armazenamento
         AnimatedCard {
             Column(Modifier.padding(VagalunSpacing.large)) {
                 Text("Armazenamento", style = VagalunTypography.titleMedium)
@@ -738,7 +740,7 @@ fun DashboardScreen(
     }
 }
 
-
+// Helper: Card com animação de fade-in e leve elevação
 @Composable
 fun AnimatedCard(content: @Composable () -> Unit) {
     val transition = updateTransition(targetState = true, label = "card")
@@ -748,6 +750,7 @@ fun AnimatedCard(content: @Composable () -> Unit) {
     Card(
         shape = VagalunShapes.card,
         colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
         modifier = Modifier
             .fillMaxWidth()
             .graphicsLayer {
@@ -760,7 +763,7 @@ fun AnimatedCard(content: @Composable () -> Unit) {
     }
 }
 
-
+// ===================== FILES SCREEN =====================
 @Composable
 fun FilesScreen(
     files: List<UiFileEntry>,
@@ -777,7 +780,6 @@ fun FilesScreen(
             Spacer(Modifier.height(VagalunSpacing.medium))
 
             if (files.isEmpty()) {
-                // Estado vazio com animação
                 Column(
                     Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.Center,
@@ -892,7 +894,7 @@ fun FileRow(entry: UiFileEntry, onClick: () -> Unit, onDelete: () -> Unit) {
     }
 }
 
-
+// ===================== MEDIA VIEWER =====================
 @Composable
 fun MediaViewerScreen(
     entry: UiFileEntry?,
@@ -916,7 +918,6 @@ fun MediaViewerScreen(
                 Modifier.align(Alignment.Center),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                
                 CircularProgressIndicator(
                     color = VagalunColors.red,
                     modifier = Modifier.size(48.dp)
@@ -981,7 +982,7 @@ fun VideoPlayerFromBytes(bytes: ByteArray, fileName: String) {
     )
 }
 
-
+// ===================== SETTINGS =====================
 @Composable
 fun SettingsScreen(
     wifiOnly: Boolean,
@@ -1035,7 +1036,7 @@ fun SettingsToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean
     }
 }
 
-
+// ===================== ONBOARDING =====================
 @Composable
 fun WalletOnboardingScreen(onSeedReady: (String) -> Unit) {
     var mode by remember { mutableStateOf("choose") }
@@ -1126,7 +1127,7 @@ fun WalletOnboardingScreen(onSeedReady: (String) -> Unit) {
     }
 }
 
-
+// ===================== WALLET =====================
 @Composable
 fun WalletScreen(
     seedPhrase: String,
@@ -1167,7 +1168,7 @@ fun WalletScreen(
     ) {
         Text("Carteira", style = VagalunTypography.titleLarge)
 
-        
+        // Saldo
         AnimatedCard {
             Column(Modifier.padding(VagalunSpacing.large)) {
                 Text("Saldo", style = VagalunTypography.bodySecondary)
@@ -1184,7 +1185,7 @@ fun WalletScreen(
             }
         }
 
-        
+        // Ações Enviar / Receber
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(VagalunSpacing.small)) {
             Button(
                 onClick = { /* O formulário de envio está abaixo */ },
