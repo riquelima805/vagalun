@@ -1,7 +1,4 @@
-// Parser mínimo de RFC 7233 Range: só um range por vez (sem multipart/byteranges,
-// que ninguém usa na prática pra esse tipo de gateway).
-// Retorna: null (sem Range / não parseável -> serve tudo), 'unsatisfiable' (416),
-// ou {start, end} inclusive.
+
 function parseRange(rangeHeader, totalLength) {
   if (!rangeHeader || !rangeHeader.startsWith('bytes=')) return null;
   const spec = rangeHeader.slice(6).split(',')[0].trim();
@@ -12,7 +9,7 @@ function parseRange(rangeHeader, totalLength) {
 
   let start; let end;
   if (startStr === '') {
-    // range de sufixo: últimos N bytes
+  
     const n = parseInt(endStr, 10);
     if (Number.isNaN(n) || n <= 0) return null;
     if (totalLength === 0) return 'unsatisfiable';
