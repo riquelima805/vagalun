@@ -1,7 +1,4 @@
-// Corrida por latência estilo torrent/IPFS: dispara fetchOne(placement) pros N nós
-// que guardam o bloco em paralelo, e resolve assim que K delas voltarem com dado válido.
-// As que ainda estão em voo quando já temos K são só ignoradas (não canceladas — TCP
-// não tem cancelamento barato — mas isso não bloqueia a resposta).
+
 async function fetchShardsMultiSource(placements, k, fetchOne) {
   if (placements.length === 0) throw new Error('sem placements pra buscar o shard');
 
