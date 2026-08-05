@@ -1,13 +1,4 @@
-// Coração do passo 3+4: dado um FileMeta (striping já feito no passo 1) e um range de
-// bytes do arquivo lógico, descobre quais blocos cobrem o range, busca só esses blocos
-// (multi-source: passo 4), decodifica (RS + AES-GCM) e entrega só a fatia pedida.
-//
-// Granularidade é por BLOCO, não por byte dentro do shard: pra servir um range a gente
-// sempre reconstrói o(s) bloco(s) inteiros que tocam o range e depois corta em memória.
-// Isso é exatamente o "Range request" descrito no passo 2 do roadmap ("calcula quais
-// blocos cobrem esse intervalo → só busca esses blocos"). A op get_range do passo 2 é
-// usada mesmo assim pra buscar o shard (em vez de handleGet), porque no nó ela evita
-// carregar o arquivo inteiro em RAM (RandomAccessFile + seek).
+
 
 const registry = require('./registry');
 const { fetchShardsMultiSource } = require('./multiSource');
@@ -73,8 +64,7 @@ async function fetchBlockPlaintext(file, block) {
   return plaintext;
 }
 
-// Gera os pedaços de bytes [start, end] (inclusive) do arquivo lógico, bloco a bloco —
-// dá pra usar tanto pra montar um Buffer só (testes) quanto pra fazer streaming (HTTP).
+
 async function* rangeChunks(file, start, end) {
   for (const block of coveringBlocks(file, start, end)) {
     const plaintext = await fetchBlockPlaintext(file, block);
