@@ -1,5 +1,9 @@
 ⚠️ em manutençao. 04/08/2026 ⚠️
 
+streaming de videos imprementado.
+posibilidade de hospedagem de site estatico.
+pagamento de banda usada para os nodes.
+
 
 <div align="center">
 
