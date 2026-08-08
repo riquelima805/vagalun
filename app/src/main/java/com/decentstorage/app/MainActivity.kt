@@ -79,17 +79,18 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlin.math.sin
 
-// ===================== DESIGN TOKENS =====================
+// ===================== DESIGN TOKENS (AJUSTADO) =====================
 object VagalunColors {
-    val bg = Color(0xFF0D0D0D)
-    val bgCard = Color(0xFF15151A)
-    val bgCard2 = Color(0xFF232329)
-    val red = Color(0xFFFF3B3B)
-    val redSoft = Color(0xFFFF5A5F)
-    // redDim removido — era o "vinho" feio usado em preenchimentos de seleção.
-    // Seleção agora usa borda vermelha sólida (ver PrivacyOptionRow / FileRow).
-    val textPrimary = Color(0xFFFFFFFF)
-    val textSecondary = Color(0xFFB0B0B0)
+    val bg = Color(0xFF000000)          // Preto Absoluto (sem tom avermelhado)
+    val bgCard = Color(0xFF121212)      // Grafite bem escuro e limpo para cards
+    val bgCard2 = Color(0xFF1E1E1E)     // Tom levemente mais claro para bordas/cards secundários
+    
+    val red = Color(0xFFE50914)         // Vermelho vibrante/sólido (Estilo Netflix)
+    val redSoft = Color(0xFFB71C1C)     // Vermelho escuro para estados secundários
+    
+    val textPrimary = Color(0xFFFFFFFF) // Texto principal branco
+    val textSecondary = Color(0xFFA0A0A0) // Texto secundário cinza claro
+    
     val danger = Color(0xFFFF4D4D)
     val warning = Color(0xFFFFB020)
     val success = Color(0xFF2ECC71)
