@@ -1,0 +1,70 @@
+.ds-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  transition: box-shadow var(--transition), transform var(--transition);
+}
+
+.ds-card:hover {
+  box-shadow: var(--shadow-float);
+  transform: translateY(-2px);
+}
+
+.ds-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.ds-card-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ds-card-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.ds-card-subtitle {
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+.ds-card-body {
+  margin-top: 16px;
+}
+
+.ds-card-footer {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* -------- Badges -------- */
+.ds-badge {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+}
+
+.ds-badge-success { background: var(--success-soft); color: var(--success); }
+.ds-badge-warning { background: var(--warning-soft); color: var(--warning); }
+.ds-badge-danger  { background: var(--danger-soft);  color: var(--danger); }
+.ds-badge-default { background: var(--bg-muted);     color: var(--text-secondary); }

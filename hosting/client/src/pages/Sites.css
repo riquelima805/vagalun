@@ -1,0 +1,241 @@
+
+.site-info p,
+.info-card li,
+.info-card h3,
+.create-form h3,
+.sites-header h1,
+.btn-primary,
+.btn-secondary {
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+
+.sites-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 30px;
+  gap: 20px;
+}
+
+.sites-header h1 {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  margin-bottom: 5px;
+}
+
+.sites-header p {
+  color: var(--text-secondary);
+}
+
+.sites-header button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.create-form {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  margin-bottom: 30px;
+}
+
+.create-form h3 {
+  color: var(--text-primary);
+  margin-bottom: 20px;
+}
+
+.sites-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 20px;
+  margin-top: 30px;
+}
+
+.site-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.site-card:hover {
+  box-shadow: var(--shadow-float);
+  transform: translateY(-2px);
+}
+
+.site-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  margin-bottom: 15px;
+  gap: 10px;
+}
+
+.site-header h3 {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  flex: 1;
+}
+
+.site-info {
+  flex: 1;
+  margin-bottom: 15px;
+  padding: 14px 16px;
+  background: var(--bg-page);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+}
+
+.site-info p {
+  margin: 8px 0;
+  color: var(--text-secondary);
+}
+
+.site-domain {
+  word-break: break-all;
+  font-family: monospace;
+}
+
+.site-actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.btn-upload {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex: 1;
+  padding: 10px;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  font-size: 14px;
+  box-shadow: var(--shadow-primary-glow);
+}
+
+.btn-upload:hover {
+  background: var(--primary-hover);
+  transform: scale(1.02);
+}
+
+.btn-upload:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.site-actions .btn-secondary {
+  flex: 1;
+}
+
+.site-url {
+  display: flex;
+  gap: 8px;
+}
+
+.url-input {
+  flex: 1;
+  font-family: monospace;
+  font-size: 12px;
+  padding: 8px 10px;
+  background: var(--bg-page);
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+}
+
+.url-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.btn-copy {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 16px;
+}
+
+.btn-copy:hover {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-secondary);
+}
+
+.empty-state svg {
+  color: var(--text-tertiary);
+  margin-bottom: 20px;
+}
+
+.empty-state h2 {
+  font-size: 22px;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+}
+
+.info-card {
+  background: var(--primary-soft);
+  border: 1px solid var(--primary-soft-border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  margin-top: 30px;
+}
+
+.info-card h3 {
+  color: var(--primary);
+  margin-bottom: 15px;
+}
+
+.info-card ol {
+  margin-left: 20px;
+  color: var(--text-secondary);
+  line-height: 1.8;
+}
+
+.info-card li {
+  margin-bottom: 10px;
+}
+
+@media (max-width: 768px) {
+  .sites-header {
+    flex-direction: column;
+  }
+
+  .sites-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .site-actions {
+    flex-direction: column;
+  }
+}

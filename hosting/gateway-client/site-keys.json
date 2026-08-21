@@ -1,0 +1,17 @@
+{
+  "auto-test.gateway.local": {
+    "pubkeyB58": "Ha9z2FDmUV3ofusCLMg51MvsRoHcBvbb2xbGxURKvuJb",
+    "privateKeyDer": "MC4CAQAwBQYDK2VwBCIEIAQyxwJeLq7g+E7xs2RUo5oPO165GoMRe3xU1dTlDn8F",
+    "createdAt": 1786240150218
+  },
+  "c8c8ca76-037a-4e4a-9f4a-457011a6031a.vagalun.shop": {
+    "pubkeyB58": "CDeDapxaHxswYGADatVGd3SGm6BXiyVpKKTFA7XLNrpV",
+    "privateKeyDer": "MC4CAQAwBQYDK2VwBCIEIDKOOa/lvPtXEUp6DkoixZv7tjAU1CGHf/U4PphohQai",
+    "createdAt": 1786394112719
+  },
+  "762e748c-072d-423a-9ab1-b67ac0c2799e.vagalun.shop": {
+    "pubkeyB58": "9ks7aCYJuvXFnjP6YrdYA2wPe2cJ32gXbX99fvQWD32s",
+    "privateKeyDer": "MC4CAQAwBQYDK2VwBCIEINYFXdZ14zj7MzlCnXoXaV+lgTVg4si3zzvqplc+yNj/",
+    "createdAt": 1786400613411
+  }
+}

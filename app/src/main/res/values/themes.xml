@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Tema principal do app -->
+    <style name="Theme.Vagalun" parent="Theme.Material3.DayNight.NoActionBar" />
+
+    <!-- Tela inicial (splash): fundo branco + logo.png centralizado,
+         no lugar do tema padrão preto/escuro do Android. -->
+    <style name="Theme.Vagalun.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@android:color/white</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_logo</item>
+        <item name="windowSplashScreenIconBackgroundColor">@android:color/white</item>
+        <item name="postSplashScreenTheme">@style/Theme.Vagalun</item>
+    </style>
+
+</resources>

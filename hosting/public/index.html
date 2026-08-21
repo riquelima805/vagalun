@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vagalun | The Decentralized CDN</title>
+    
+    <!-- Google Fonts: Inter & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --white: #FFFFFF;
+            --black: #0A0A0A;
+            --primary: #E31B23;
+            --glow: #FF4D4D;
+            --ui-gray: #F5F5F5;
+            --border: #EAEAEA;
+            --text-gray: #666666;
+            
+            --font-sans: 'Inter', sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
+        /* --- GLOBAL RESET & BASE --- */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: var(--font-sans);
+            background-color: var(--white);
+            color: var(--black);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+        a { text-decoration: none; }
+        ul { list-style: none; }
+
+        /* --- ANIMATIONS (SCROLL & LOAD) --- */
+        .reveal {
+            opacity: 0;
+            transform: translateY(40px);
+            transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .reveal.active {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .delay-1 { transition-delay: 0.1s; }
+        .delay-2 { transition-delay: 0.2s; }
+        .delay-3 { transition-delay: 0.3s; }
+        .delay-4 { transition-delay: 0.4s; }
+
+        @keyframes pulseGlow {
+            0% { box-shadow: 0 0 12px rgba(227, 27, 35, 0.2); }
+            50% { box-shadow: 0 0 24px rgba(227, 27, 35, 0.5); }
+            100% { box-shadow: 0 0 12px rgba(227, 27, 35, 0.2); }
+        }
+
+        /* --- LAYOUT UTILITIES --- */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+        .grid-2 {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 32px;
+        }
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 32px;
+        }
+        .text-center { text-align: center; }
+        .mono { font-family: var(--font-mono); }
+
+        /* --- BUTTONS --- */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 14px 28px;
+            border-radius: 8px;
+            font-weight: 500;
+            font-size: 16px;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+        .btn-primary {
+            background-color: var(--primary);
+            color: var(--white);
+            border: none;
+            box-shadow: 0 4px 14px rgba(227, 27, 35, 0.2);
+        }
+        .btn-primary:hover {
+            background-color: var(--glow);
+            box-shadow: 0 6px 20px rgba(255, 77, 77, 0.4);
+            transform: translateY(-1px);
+        }
+        .btn-secondary {
+            background-color: transparent;
+            color: var(--black);
+            border: 1px solid var(--border);
+        }
+        .btn-secondary:hover {
+            border-color: var(--black);
+            background-color: var(--ui-gray);
+        }
+
+        /* --- BADGES --- */
+        .badge {
+            display: inline-block;
+            padding: 6px 14px;
+            border-radius: 9999px;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            font-family: var(--font-mono);
+            border: 1px solid rgba(227, 27, 35, 0.3);
+            color: var(--primary);
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(4px);
+            transition: all 0.3s ease;
+        }
+        .badge:hover {
+            box-shadow: 0 0 12px rgba(255, 77, 77, 0.3);
+            border-color: var(--primary);
+        }
+        .badge-neutral {
+            border: 1px solid var(--border);
+            color: var(--text-gray);
+        }
+
+        /* --- FRAME 01: HERO --- */
+        .hero {
+            position: relative;
+            padding: 140px 0 100px;
+            text-align: center;
+        }
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: 10%;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 600px;
+            height: 400px;
+            background: rgba(227, 27, 35, 0.08);
+            filter: blur(120px);
+            z-index: -1;
+            border-radius: 50%;
+        }
+        .hero-grid {
+            position: absolute;
+            inset: 0;
+            background-image: 
+                linear-gradient(to right, rgba(234, 234, 234, 0.5) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(234, 234, 234, 0.5) 1px, transparent 1px);
+            background-size: 40px 40px;
+            z-index: -2;
+            mask-image: radial-gradient(circle at center, black 30%, transparent 80%);
+            -webkit-mask-image: radial-gradient(circle at center, black 30%, transparent 80%);
+            animation: fadeInGrid 2s ease-out;
+        }
+        
+        @keyframes fadeInGrid {
+            0% { opacity: 0; }
+            100% { opacity: 1; }
+        }
+
+        .hero h1 {
+            font-size: 64px;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            line-height: 1.1;
+            margin: 32px 0 24px;
+            color: var(--black);
+        }
+        .hero h1 .highlight {
+            color: var(--primary);
+        }
+        .hero p {
+            font-size: 20px;
+            color: var(--text-gray);
+            max-width: 700px;
+            margin: 0 auto 48px;
+            font-weight: 400;
+        }
+        .hero-cta {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+        }
+
+        /* --- FRAME 02: METRICS STRIP --- */
+        .metrics-strip {
+            border-top: 1px solid var(--border);
+            border-bottom: 1px solid var(--border);
+            padding: 24px 0;
+            background: var(--white);
+        }
+        .metrics-inner {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .metric-item {
+            font-family: var(--font-mono);
+            font-size: 13px;
+            color: var(--text-gray);
+            transition: color 0.2s ease;
+        }
+        .metric-item:hover { color: var(--primary); }
+        .metric-separator {
+            width: 1px;
+            height: 20px;
+            background-color: var(--border);
+        }
+
+        /* --- FRAME 03: CORE VALUE (CARDS) --- */
+        .core-values {
+            padding: 120px 0;
+        }
+        .section-title {
+            font-size: 40px;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            margin-bottom: 48px;
+        }
+        .card {
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 40px;
+            background: var(--white);
+            transition: all 0.3s ease;
+        }
+        .card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 16px 32px rgba(227, 27, 35, 0.08);
+            border-color: rgba(227, 27, 35, 0.3);
+        }
+        .card h3 {
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 16px;
+        }
+        .card ul { margin-top: 16px; }
+        .card li {
+            font-size: 15px;
+            color: var(--text-gray);
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+        }
+        .card li::before {
+            content: '→';
+            color: var(--primary);
+            margin-right: 8px;
+            font-family: var(--font-mono);
+        }
+
+        /* --- FRAME 04: ARCHITECTURE DIAGRAM --- */
+        .architecture {
+            padding: 80px 0;
+            background: var(--ui-gray);
+            border-top: 1px solid var(--border);
+            border-bottom: 1px solid var(--border);
+        }
+        .arch-flow {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 32px;
+            overflow-x: auto;
+            padding-bottom: 16px;
+        }
+        .arch-node {
+            background: var(--white);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px 24px;
+            font-family: var(--font-mono);
+            font-size: 14px;
+            font-weight: 500;
+            text-align: center;
+            z-index: 2;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+        .arch-node:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+            transform: translateY(-2px);
+        }
+        .arch-node-active {
+            border-color: var(--primary);
+            animation: pulseGlow 2s infinite;
+        }
+        .arch-line {
+            flex-grow: 1;
+            height: 2px;
+            background: linear-gradient(90deg, var(--border) 0%, rgba(227, 27, 35, 0.4) 50%, var(--border) 100%);
+            margin: 0 12px;
+            position: relative;
+            overflow: hidden;
+        }
+        /* Animated line glow effect */
+        .arch-line::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 50%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, var(--primary), transparent);
+            animation: lineFlow 2s infinite linear;
+        }
+        @keyframes lineFlow {
+            0% { left: -100%; }
+            100% { left: 200%; }
+        }
+
+        .arch-desc {
+            font-family: var(--font-mono);
+            font-size: 13px;
+            color: var(--text-gray);
+            text-align: center;
+        }
+
+        /* --- FRAME 05: WHY IT DISRUPTS --- */
+        .disruption {
+            padding: 120px 0;
+        }
+        .disrupt-col h3 {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .disrupt-col h3 svg {
+            width: 22px;
+            height: 22px;
+            stroke: var(--primary);
+            flex-shrink: 0;
+        }
+        .disrupt-col h3 {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 12px;
+        }
+        .disrupt-col p {
+            color: var(--text-gray);
+            font-size: 16px;
+        }
+
+        /* --- VC MODE IMPROVEMENT --- */
+        .vc-stats {
+            background: var(--black);
+            color: var(--white);
+            padding: 48px 0;
+            border-radius: 16px;
+            margin-bottom: 80px;
+            position: relative;
+            overflow: hidden;
+        }
+        .vc-stats::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--primary), transparent);
+        }
+        .vc-stats h4 {
+            color: var(--primary);
+            font-family: var(--font-mono);
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 8px;
+        }
+        .vc-stats p { font-size: 20px; font-weight: 500; }
+
+        /* --- FRAME 06: SOLANA LAYER --- */
+        .solana-layer {
+            padding: 120px 0;
+            border-top: 1px solid var(--border);
+        }
+        .solana-card {
+            background: var(--ui-gray);
+            border-radius: 24px;
+            padding: 64px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.5s ease;
+        }
+        .solana-card:hover {
+            box-shadow: 0 20px 40px rgba(0,0,0,0.05);
+        }
+        .solana-content h2 {
+            font-size: 32px;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            margin-bottom: 16px;
+        }
+        .solana-content p {
+            font-size: 18px;
+            color: var(--text-gray);
+            margin-bottom: 24px;
+        }
+
+        /* --- FRAME 07: TECH STACK STRIP --- */
+        .tech-stack {
+            padding: 60px 0;
+            text-align: center;
+        }
+        .tech-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            justify-content: center;
+        }
+        .chip {
+            padding: 8px 16px;
+            border-radius: 99px;
+            border: 1px solid var(--border);
+            font-family: var(--font-mono);
+            font-size: 13px;
+            color: var(--black);
+            background: var(--white);
+            transition: all 0.2s;
+        }
+        .chip:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+            transform: scale(1.05);
+        }
+
+        /* --- FRAME 08: FINAL CTA --- */
+        .final-cta {
+            padding: 140px 0;
+            text-align: center;
+            background: linear-gradient(180deg, var(--white) 0%, rgba(227, 27, 35, 0.05) 100%);
+            border-top: 1px solid var(--border);
+        }
+        .final-cta h2 {
+            font-size: 48px;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            margin-bottom: 16px;
+        }
+        .final-cta p {
+            font-size: 20px;
+            color: var(--text-gray);
+            margin-bottom: 40px;
+        }
+
+        /* --- RESPONSIVE --- */
+        @media (max-width: 992px) {
+            .hero h1 { font-size: 48px; }
+            .grid-3 { grid-template-columns: 1fr; }
+            .solana-card { flex-direction: column; text-align: left; align-items: flex-start; gap: 32px; padding: 40px; }
+            .metrics-inner { flex-wrap: wrap; gap: 16px; justify-content: center; }
+            .metric-separator { display: none; }
+        }
+        @media (max-width: 768px) {
+            .hero h1 { font-size: 40px; }
+            .grid-2 { grid-template-columns: 1fr; }
+            .hero-cta, .final-cta .hero-cta { flex-direction: column; }
+            .arch-flow { flex-direction: column; gap: 16px; align-items: stretch; }
+            .arch-line { height: 24px; width: 2px; margin: 0 auto; background: linear-gradient(180deg, var(--border) 0%, rgba(227, 27, 35, 0.4) 50%, var(--border) 100%); }
+            .arch-line::after {
+                width: 100%; height: 50%; top: -100%; left: 0;
+                background: linear-gradient(180deg, transparent, var(--primary), transparent);
+                animation: lineFlowVertical 2s infinite linear;
+            }
+            @keyframes lineFlowVertical {
+                0% { top: -100%; }
+                100% { top: 200%; }
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- FRAME 01: HERO -->
+    <section class="hero">
+        <div class="hero-grid"></div>
+        <div class="container">
+            <span class="badge reveal">Decentralized CDN Infrastructure</span>
+            <h1 class="reveal delay-1">The first decentralized CDN<br>powered by <span class="highlight">mobile devices</span></h1>
+            <p class="reveal delay-2">A peer-to-peer storage and streaming network where smartphones become edge nodes. Encrypted, sharded, and delivered like a global CDN, without the servers.</p>
+            <div class="hero-cta reveal delay-3">
+                <a href="#" class="btn btn-primary">Request Technical Demo</a>
+                <a href="#" class="btn btn-secondary">Read Architecture</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- FRAME 02: METRICS STRIP -->
+    <div class="metrics-strip reveal">
+        <div class="container metrics-inner">
+            <div class="metric-item">99.9% fault tolerance</div>
+            <div class="metric-separator"></div>
+            <div class="metric-item">k-of-n redundancy</div>
+            <div class="metric-separator"></div>
+            <div class="metric-item">AES-256 encryption</div>
+            <div class="metric-separator"></div>
+            <div class="metric-item">Solana settlement</div>
+        </div>
+    </div>
+
+    <!-- FRAME 03: CORE VALUE (4 CARDS) -->
+    <section class="core-values container">
+        <div class="grid-2">
+            <!-- Card 1 -->
+            <div class="card reveal delay-1">
+                <h3>Mini CDN Engine</h3>
+                <p class="text-gray">Optimized for high-throughput video delivery directly from edge peers.</p>
+                <ul>
+                    <li>Range-based streaming (HTTP 206)</li>
+                    <li>Reconstructs video on demand</li>
+                </ul>
+            </div>
+            <!-- Card 2 -->
+            <div class="card reveal delay-2">
+                <h3>Mobile Edge Network</h3>
+                <p class="text-gray">Harnessing untapped bandwidth and storage across global networks.</p>
+                <ul>
+                    <li>Every smartphone becomes a node</li>
+                    <li>No centralized servers required</li>
+                </ul>
+            </div>
+            <!-- Card 3 -->
+            <div class="card reveal delay-1">
+                <h3>Reed-Solomon Sharding</h3>
+                <p class="text-gray">Mathematical guarantees for data availability even with high node churn.</p>
+                <ul>
+                    <li>k-of-n recovery system</li>
+                    <li>Fault tolerant distributed storage</li>
+                </ul>
+            </div>
+            <!-- Card 4 -->
+            <div class="card reveal delay-2">
+                <h3>Encrypted by Default</h3>
+                <p class="text-gray">Nodes store fragments of encrypted data. They know nothing about the payload.</p>
+                <ul>
+                    <li>AES-256-GCM per block</li>
+                    <li>Zero trust node architecture</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <!-- FRAME 04: ARCHITECTURE DIAGRAM -->
+    <section class="architecture reveal">
+        <div class="container">
+            <h2 class="section-title text-center" style="margin-bottom: 64px;">Network Architecture</h2>
+            <div class="arch-flow">
+                <div class="arch-node reveal delay-1">Client</div>
+                <div class="arch-line reveal delay-1"></div>
+                <div class="arch-node reveal delay-2">Gateway</div>
+                <div class="arch-line reveal delay-2"></div>
+                <div class="arch-node reveal delay-3">Shard Router</div>
+                <div class="arch-line reveal delay-3"></div>
+                <div class="arch-node arch-node-active reveal delay-4">Mobile Nodes</div>
+                <div class="arch-line reveal delay-4"></div>
+                <div class="arch-node reveal delay-4">Reconstruction Engine</div>
+            </div>
+            <p class="arch-desc reveal delay-4" style="margin-top: 24px;">Range request, shard lookup, parallel fetch, decode, decrypt, stream (206 Partial Content)</p>
+        </div>
+    </section>
+
+    <!-- EXTRA: VC MODE IMPROVEMENT -->
+    <section class="container" style="margin-top: 120px;">
+        <div class="vc-stats grid-3 text-center reveal">
+            <div>
+                <h4>Market Target</h4>
+                <p>$300B+ CDN Market</p>
+            </div>
+            <div>
+                <h4>Arbitrage Layer</h4>
+                <p>Bandwidth Economics</p>
+            </div>
+            <div>
+                <h4>Edge Compute</h4>
+                <p>Idle Mobile Storage Utilization</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- FRAME 05: WHY IT DISRUPTS -->
+    <section class="disruption container">
+        <h2 class="section-title reveal">Infrastructure without servers</h2>
+        <div class="grid-3">
+            <div class="disrupt-col reveal delay-1">
+                <h3><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="2" x2="12" y2="22"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg> Cost disruption</h3>
+                <p>Cutting out centralized data centers and routing traffic peer-to-peer brings bandwidth and storage costs down more than 90%.</p>
+            </div>
+            <div class="disrupt-col reveal delay-2">
+                <h3><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg> Global edge layer</h3>
+                <p>Every device running the protocol turns into a micro CDN node, sitting closer to end users than a traditional edge location.</p>
+            </div>
+            <div class="disrupt-col reveal delay-3">
+                <h3><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg> No datacenter dependency</h3>
+                <p>Infrastructure grows organically from the users themselves, so a regional outage doesn't take the network down with it.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- FRAME 06: SOLANA LAYER -->
+    <section class="solana-layer container">
+        <div class="solana-card reveal">
+            <div class="solana-content">
+                <h2>Solana Settlement Layer<br><span style="font-size: 24px; font-weight: 500; color: var(--text-gray);">(Invisible to users)</span></h2>
+                <p>Payments handled on-chain. Storage proofs verified via smart contracts. End users never see a crypto UX.</p>
+                <div class="badge badge-neutral mono">Anchor Program • Devnet → Mainnet ready</div>
+            </div>
+            <div>
+                <svg width="120" height="120" viewBox="0 0 24 24" fill="none" stroke="var(--black)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                    <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                    <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                </svg>
+            </div>
+        </div>
+    </section>
+
+    <!-- FRAME 07: TECH STACK STRIP -->
+    <section class="tech-stack container reveal">
+        <div class="tech-chips">
+            <div class="chip">Node.js</div>
+            <div class="chip">WebRTC</div>
+            <div class="chip">Reed-Solomon</div>
+            <div class="chip">AES-GCM</div>
+            <div class="chip">Solana</div>
+            <div class="chip">Anchor</div>
+            <div class="chip">HTTP Range Streaming</div>
+        </div>
+    </section>
+
+    <!-- FRAME 08: FINAL CTA -->
+    <section class="final-cta reveal">
+        <div class="container">
+            <h2>Built for the next internet layer</h2>
+            <p>Decentralized storage. Streaming CDN. Mobile edge infrastructure.</p>
+            <div class="hero-cta">
+                <a href="#" class="btn btn-primary">Request Demo</a>
+                <a href="#" class="btn btn-secondary">View Whitepaper</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- JS PARA SCROLL REVEAL (Intersection Observer) -->
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            const observerOptions = {
+                root: null,
+                rootMargin: '0px',
+                threshold: 0.15
+            };
+
+            const observer = new IntersectionObserver((entries, observer) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add('active');
+                        observer.unobserve(entry.target);
+                    }
+                });
+            }, observerOptions);
+
+            const revealElements = document.querySelectorAll('.reveal');
+            revealElements.forEach(el => observer.observe(el));
+            setTimeout(() => {
+                const heroElements = document.querySelectorAll('.hero .reveal');
+                heroElements.forEach(el => el.classList.add('active'));
+            }, 100);
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,993 @@
+/* =========================================
+   BILLING
+========================================= */
+
+.billing-header {
+  margin-bottom: 34px;
+  text-align: center;
+}
+
+.billing-header h1 {
+  margin: 0 0 8px;
+
+  color: var(--text-primary);
+
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+}
+
+.billing-header h1::first-letter {
+  color: var(--primary);
+}
+
+.billing-header p {
+  margin: 0;
+
+  color: var(--text-secondary);
+
+  font-size: 12px;
+}
+
+
+/* =========================================
+   CONFIRMAÇÃO
+========================================= */
+
+.confirm-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  gap: 8px;
+
+  margin: 0 auto 25px;
+
+  max-width: 700px;
+
+  padding: 12px 16px;
+
+  border-radius: var(--radius-md);
+
+  font-size: 12px;
+}
+
+.confirm-banner.ok {
+  color: var(--success);
+
+  background: var(--success-soft);
+
+  border: 1px solid var(--success-soft);
+}
+
+.confirm-banner.warn {
+  color: var(--warning);
+
+  background: var(--warning-soft);
+
+  border: 1px solid #fde68a;
+}
+
+
+/* =========================================
+   PLANOS
+========================================= */
+
+.plans-grid {
+  display: grid;
+
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(220px, 1fr)
+  );
+
+  gap: 15px;
+
+  margin-bottom: 38px;
+}
+
+.plan-card {
+  position: relative;
+
+  display: flex;
+  flex-direction: column;
+
+  min-width: 0;
+
+  padding: 22px;
+
+  background:
+    linear-gradient(
+      145deg,
+      var(--bg-muted) 0%,
+      var(--bg-muted) 100%
+    );
+
+  border: 1px solid var(--border-subtle);
+
+  border-radius: var(--radius-md);
+
+  cursor: pointer;
+
+  transition:
+    transform 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.plan-card:hover {
+  transform: translateY(-2px);
+
+  border-color: var(--primary);
+
+  box-shadow:
+    0 10px 30px rgba(28,25,23,0.35);
+}
+
+.plan-card.selected {
+  border: 1px solid var(--primary);
+
+  background:
+    linear-gradient(
+      145deg,
+      var(--primary-soft),
+      var(--bg-muted) 65%
+    );
+
+  box-shadow:
+    0 0 0 1px var(--primary-soft),
+    0 12px 35px var(--primary-soft);
+}
+
+.plan-card.current {
+  border-color: var(--border-subtle);
+}
+
+
+/* =========================================
+   BADGE
+========================================= */
+
+.plan-badge {
+  align-self: flex-start;
+
+  min-height: 19px;
+
+  display: inline-flex;
+  align-items: center;
+
+  margin-bottom: 13px;
+
+  padding: 4px 7px;
+
+  color: var(--text-secondary);
+
+  background: var(--bg-muted);
+
+  border: 1px solid var(--border-strong);
+
+  border-radius: 5px;
+
+  font-size: 8px;
+  font-weight: 700;
+
+  letter-spacing: 0.7px;
+
+  text-transform: uppercase;
+}
+
+.plan-card.selected .plan-badge {
+  color: var(--danger);
+
+  background: var(--primary-soft);
+
+  border-color: var(--primary-soft-border);
+}
+
+
+/* =========================================
+   NOME
+========================================= */
+
+.plan-card h3 {
+  margin: 0 0 8px;
+
+  color: var(--border-default);
+
+  font-size: 18px;
+  font-weight: 600;
+}
+
+
+/* =========================================
+   PREÇO
+========================================= */
+
+.plan-price {
+  display: flex;
+  align-items: baseline;
+
+  min-height: 42px;
+
+  margin-bottom: 20px;
+
+  color: white;
+
+  font-size: 28px;
+  font-weight: 700;
+
+  letter-spacing: -0.5px;
+}
+
+.plan-price > span:first-child {
+  font-size: inherit;
+}
+
+.plan-period {
+  margin-left: 4px;
+
+  color: var(--text-secondary);
+
+  font-size: 11px;
+  font-weight: 400;
+
+  letter-spacing: 0;
+}
+
+
+/* =========================================
+   FEATURES
+========================================= */
+
+.plan-features {
+  flex: 1;
+
+  margin-bottom: 20px;
+
+  padding-top: 15px;
+
+  border-top: 1px solid var(--border-default);
+}
+
+.feature {
+  display: flex;
+  align-items: center;
+
+  gap: 8px;
+
+  margin-bottom: 11px;
+
+  color: var(--text-secondary);
+
+  font-size: 11px;
+}
+
+.feature:last-child {
+  margin-bottom: 0;
+}
+
+.feature .check {
+  width: 17px;
+  height: 17px;
+
+  flex-shrink: 0;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  color: var(--success);
+
+  background: var(--success-soft);
+
+  border-radius: 50%;
+
+  font-size: 9px;
+}
+
+
+/* =========================================
+   BOTÃO PLANO
+========================================= */
+
+.btn-select {
+  width: 100%;
+
+  min-height: 38px;
+
+  padding: 9px 12px;
+
+  color: var(--text-tertiary);
+
+  background: var(--bg-muted);
+
+  border: 1px solid var(--border-subtle);
+
+  border-radius: var(--radius-md);
+
+  font-size: 10px;
+  font-weight: 600;
+
+  cursor: pointer;
+
+  transition: all 0.2s ease;
+}
+
+.btn-select:hover:not(:disabled) {
+  color: var(--danger);
+
+  border-color: var(--primary);
+
+  background: var(--primary-soft);
+}
+
+.btn-select.active {
+  color: white;
+
+  background: var(--primary);
+
+  border-color: var(--primary);
+
+  box-shadow:
+    0 5px 15px var(--primary-soft);
+}
+
+.btn-select:disabled {
+  opacity: 0.7;
+
+  cursor: default;
+}
+
+
+/* =========================================
+   PAGAMENTO
+========================================= */
+
+.payment-section {
+  margin-bottom: 38px;
+}
+
+.payment-section > h2 {
+  display: flex;
+  align-items: center;
+
+  gap: 8px;
+
+  margin: 0 0 15px;
+
+  color: var(--border-default);
+
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.payment-section > p {
+  margin: 0;
+
+  padding: 16px;
+
+  color: var(--text-secondary);
+
+  background: var(--bg-surface);
+
+  border: 1px solid var(--border-default);
+
+  border-radius: var(--radius-md);
+
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+
+/* =========================================
+   MÉTODO DE PAGAMENTO
+========================================= */
+
+.payment-method-group {
+  margin-bottom: 10px;
+
+  background: var(--bg-surface);
+
+  border: 1px solid var(--border-default);
+
+  border-radius: var(--radius-md);
+
+  overflow: hidden;
+
+  transition: border-color 0.2s ease;
+}
+
+.payment-method-group:hover {
+  border-color: var(--border-strong);
+}
+
+.method-header {
+  padding: 15px 17px;
+}
+
+.method-label {
+  display: flex;
+  align-items: center;
+
+  gap: 10px;
+
+  color: var(--text-secondary);
+
+  font-size: 12px;
+  font-weight: 600;
+
+  cursor: pointer;
+
+  user-select: none;
+}
+
+.method-label input {
+  width: 15px;
+  height: 15px;
+
+  margin: 0;
+
+  cursor: pointer;
+
+  accent-color: var(--primary);
+}
+
+.method-desc {
+  margin: 5px 0 0 25px;
+
+  color: var(--text-secondary);
+
+  font-size: 10px;
+}
+
+
+/* =========================================
+   MÉTODO SELECIONADO
+========================================= */
+
+.payment-method-group:has(
+  .method-label input:checked
+) {
+  border-color: var(--primary-soft-border);
+
+  box-shadow:
+    0 0 0 1px var(--primary-soft);
+}
+
+
+/* =========================================
+   FORM
+========================================= */
+
+.method-form {
+  margin: 0 10px 10px;
+
+  padding: 15px;
+
+  background: var(--bg-muted);
+
+  border: 1px solid var(--border-default);
+
+  border-radius: var(--radius-md);
+}
+
+.small-text {
+  margin: 0 0 12px;
+
+  color: var(--text-secondary);
+
+  font-size: 10px;
+
+  line-height: 1.6;
+}
+
+.small-text code {
+  padding: 3px 5px;
+
+  color: var(--text-tertiary);
+
+  background: var(--bg-muted);
+
+  border-radius: var(--radius-sm);
+
+  font-family: monospace;
+}
+
+
+/* =========================================
+   SOLANA
+========================================= */
+
+.solana-highlight {
+  background:
+    linear-gradient(
+      135deg,
+      var(--success-soft),
+      rgba(28,25,23,0.08)
+    );
+
+  border-color: var(--success);
+}
+
+.solana-highlight .method-header {
+  background: var(--success-soft);
+}
+
+.solana-badge {
+  color: var(--success);
+
+  font-size: 12px;
+  font-weight: 700;
+
+  letter-spacing: 0.8px;
+}
+
+.solana-form {
+  background:
+    linear-gradient(
+      135deg,
+      var(--success-soft),
+      var(--bg-muted)
+    );
+
+  border-color: var(--success-soft);
+}
+
+.solana-form .btn-primary {
+  background:
+    linear-gradient(
+      90deg,
+      var(--success),
+      var(--success)
+    );
+
+  color: var(--success-soft);
+
+  box-shadow:
+    0 5px 20px var(--success-soft);
+}
+
+.solana-form .btn-primary:hover {
+  filter: brightness(1.08);
+}
+
+
+/* =========================================
+   SOLANA INFO
+========================================= */
+
+.solana-info {
+  display: grid;
+
+  grid-template-columns: 1fr;
+
+  gap: 10px;
+
+  margin-bottom: 15px;
+}
+
+.info-box {
+  padding: 13px;
+
+  background: var(--success-soft);
+
+  border: 1px solid var(--success-soft);
+
+  border-left: 3px solid var(--success);
+
+  border-radius: var(--radius-sm);
+}
+
+.info-label {
+  display: block;
+
+  margin-bottom: 5px;
+
+  color: var(--text-secondary);
+
+  font-size: 9px;
+
+  text-transform: uppercase;
+}
+
+.info-value {
+  display: block;
+
+  color: var(--success);
+
+  font-family: monospace;
+
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.exchange-rate {
+  display: block;
+
+  margin-top: 3px;
+
+  color: var(--text-primary);
+
+  font-size: 9px;
+}
+
+
+/* =========================================
+   FORM GROUP
+========================================= */
+
+.form-group {
+  margin-bottom: 13px;
+}
+
+.form-group label {
+  display: block;
+
+  margin-bottom: 7px;
+
+  color: var(--text-secondary);
+
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.form-group input {
+  width: 100%;
+
+  height: 40px;
+
+  box-sizing: border-box;
+
+  padding: 0 11px;
+
+  color: var(--text-secondary);
+
+  background: var(--bg-muted);
+
+  border: 1px solid var(--border-subtle);
+
+  border-radius: var(--radius-sm);
+
+  outline: none;
+
+  font-family: monospace;
+
+  font-size: 10px;
+
+  transition: border-color 0.2s ease;
+}
+
+.form-group input:focus {
+  border-color: var(--success);
+
+  box-shadow:
+    0 0 0 3px var(--success-soft);
+}
+
+.form-group input::placeholder {
+  color: var(--text-tertiary);
+}
+
+
+/* =========================================
+   QR
+========================================= */
+
+.payment-qr {
+  margin: 13px 0;
+
+  padding: 17px;
+
+  text-align: center;
+
+  background: var(--bg-page);
+
+  border: 1px solid var(--border-subtle);
+
+  border-radius: var(--radius-md);
+}
+
+.payment-qr h4 {
+  margin: 0 0 13px;
+
+  color: var(--text-secondary);
+
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.qr-box {
+  display: flex;
+  justify-content: center;
+
+  padding: 10px;
+}
+
+.qr-code {
+  max-width: 300px;
+
+  padding: 12px;
+
+  color: var(--border-strong);
+
+  background: white;
+
+  border-radius: var(--radius-md);
+
+  font-family: monospace;
+
+  font-size: 10px;
+
+  word-break: break-all;
+}
+
+.qr-code-box {
+  display: flex;
+  justify-content: center;
+}
+
+.qr-code-box img {
+  width: 180px;
+  max-width: 100%;
+
+  padding: 8px;
+
+  background: white;
+
+  border-radius: var(--radius-md);
+}
+
+.payment-qr p {
+  margin: 8px 0 0;
+
+  color: var(--text-secondary);
+
+  font-size: 10px;
+}
+
+.payment-qr code {
+  display: inline-block;
+
+  margin-top: 5px;
+
+  padding: 5px 8px;
+
+  color: var(--success);
+
+  background: var(--bg-muted);
+
+  border-radius: var(--radius-sm);
+
+  font-family: monospace;
+
+  font-size: 9px;
+}
+
+
+/* =========================================
+   BOTÃO PAGAR
+========================================= */
+
+.btn-pay {
+  width: 100%;
+
+  min-height: 42px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  gap: 7px;
+
+  padding: 10px 14px;
+
+  color: white;
+
+  background: var(--primary);
+
+  border: 0;
+
+  border-radius: var(--radius-md);
+
+  font-size: 11px;
+  font-weight: 600;
+
+  cursor: pointer;
+
+  transition: all 0.2s ease;
+}
+
+.btn-pay:hover:not(:disabled) {
+  background: var(--primary);
+
+  box-shadow:
+    0 7px 20px var(--primary-soft);
+
+  transform: translateY(-1px);
+}
+
+.btn-pay:disabled {
+  opacity: 0.45;
+
+  cursor: not-allowed;
+
+  transform: none;
+}
+
+
+/* =========================================
+   INFO FINAL
+========================================= */
+
+.billing-info {
+  display: grid;
+
+  grid-template-columns: repeat(2, 1fr);
+
+  gap: 14px;
+
+  margin-top: 35px;
+}
+
+.billing-info .info-box {
+  padding: 18px;
+
+  background: var(--bg-surface);
+
+  border: 1px solid var(--border-subtle);
+
+  border-left: 3px solid var(--primary);
+
+  border-radius: var(--radius-md);
+}
+
+.billing-info .info-box.solana-info {
+  border-left-color: var(--success);
+
+  background:
+    linear-gradient(
+      135deg,
+      var(--success-soft),
+      var(--bg-surface)
+    );
+}
+
+.billing-info h3 {
+  margin: 0 0 11px;
+
+  color: var(--text-secondary);
+
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.billing-info .info-box.solana-info h3 {
+  color: var(--success);
+}
+
+.billing-info ul {
+  list-style: none;
+
+  margin: 0;
+  padding: 0;
+}
+
+.billing-info li {
+  padding: 5px 0;
+
+  color: var(--text-secondary);
+
+  font-size: 10px;
+}
+
+
+/* =========================================
+   LOADING
+========================================= */
+
+.loading {
+  min-height: 400px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  color: var(--text-secondary);
+
+  font-size: 12px;
+}
+
+
+/* =========================================
+   RESPONSIVO
+========================================= */
+
+@media (max-width: 800px) {
+
+  .plans-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .billing-info {
+    grid-template-columns: 1fr;
+  }
+
+}
+
+
+@media (max-width: 600px) {
+
+  .billing-header h1 {
+    font-size: 24px;
+  }
+
+  .plans-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .plan-card {
+    padding: 18px;
+  }
+
+  .billing-info {
+    grid-template-columns: 1fr;
+  }
+
+  .method-form {
+    margin: 0 7px 7px;
+
+    padding: 12px;
+  }
+
+}
+
+/* Caixa de endereço/referência do pagamento Solana (payment-qr), separando
+   claramente "pra onde mandar SOL" de "código de referência" (NÃO é
+   endereço) — evita o usuário colar o código de referência como destino
+   e perder o pagamento. */
+.solana-address-box {
+  margin: 10px 0;
+  padding: 10px 12px;
+  text-align: left;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.solana-address-box .info-label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.solana-address-box p {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.solana-address-box code {
+  display: inline-block;
+  padding: 4px 7px;
+  color: var(--success);
+  background: var(--bg-page);
+  border-radius: 4px;
+  font-size: 10px;
+  word-break: break-all;
+}
+
+.solana-address-box.warn {
+  background: rgba(255, 176, 32, 0.08);
+  border-color: rgba(255, 176, 32, 0.35);
+}
+
+.solana-address-box.warn .info-label {
+  color: #b8860b;
+}
+
+.solana-address-box.warn code {
+  color: #b8860b;
+  background: var(--bg-page);
+}
