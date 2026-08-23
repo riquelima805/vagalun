@@ -48,8 +48,6 @@
 15. [Stack tecnológica](#stack-tecnológica)
 16. [Estrutura de pastas](#estrutura-de-pastas)
 17. [Como rodar localmente](#como-rodar-localmente)
-18. [Estado atual — o que já funciona e o que é experimental](#estado-atual--o-que-já-funciona-e-o-que-é-experimental)
-19. [Roadmap](#roadmap)
 
 ---
 
@@ -110,10 +108,6 @@ O Vagalun ataca os três ao mesmo tempo: **sem dono único** (a rede é formada 
                         └───────────────────────────────┘  free tier por prova
 ```
 
-Repare que existem **dois planos independentes**: o plano de **conteúdo** (app Android ↔ signaling ↔ gateway ↔ visitante) resolve "como o arquivo chega até quem quer ver", e o plano **econômico** (contrato Solana + Solana Pay) resolve "quem paga e quem recebe por isso". Os dois se conectam pelo `nodeId`/`pubkey` da wallet de cada participante.
-
----
-
 ## Camada 1 — App Android (o nó)
 
 `app/` — Kotlin, pacote `com.decentstorage.app`, nome de exibição **Vagalun**.
@@ -124,11 +118,9 @@ O app cumpre três papéis ao mesmo tempo:
 - **Carteira Solana embutida**: a seed do usuário deriva uma carteira Ed25519 via **SLIP-10** (`wallet/Slip10.kt`, `wallet/SolanaWallet.kt`), sem depender de wallet externa instalada — a chave também assina mensagens fora da blockchain (prova de posse pro signaling, ver seção de segurança).
 - **Cliente de upload/download**: fatia arquivos em blocos, cifra cada bloco com **AES-256-GCM**, aplica **codificação por apagamento Reed-Solomon** (`erasure/ReedSolomon.kt` + `erasure/GF256.kt`) e distribui os shards resultantes entre os peers conhecidos (`StorageClient.kt`).
 
-Descoberta de peer acontece em duas frentes: **mDNS/NSD** (`network/PeerDiscovery.kt`) para peers na mesma rede local, e **WebRTC via signaling** (`network/WebRtcManager.kt`, `network/WebRtcTransport.kt`, `network/webrtc/RelayTransport.kt`) para peers pela internet, com fallback STUN público (Google e Cloudflare — o projeto abandonou TURN de propósito, ver comentário no código). O `GossipRegistry.kt` é o "banco de dados" local de quem tem o quê — o espelho no lado do gateway é o `sever/gateway/registry.js`.
 
 Um `DailyClaimWorker.kt` (WorkManager, roda a cada 24h) percorre os shards guardados no aparelho e envia `submit_paid_claim` para o contrato Solana, reivindicando o pagamento por continuar hospedando.
 
-Permissões do `AndroidManifest.xml`: internet, estado de rede/wifi, localização precisa e multicast (exigidas pelo NSD/mDNS do Android) e serviço em primeiro plano — sem overhead de câmera, contatos, SMS etc.
 
 ## Camada 2 — Protocolo de shard e transporte
 
@@ -209,7 +201,6 @@ A plataforma consulta o signaling (`GET /nodes`) a cada publicação para saber 
 - **Contribuição gratuita** (`register_free_contribution` + `report_free_tier_proof`): mecanismo separado, pensado para quem hospeda **sem cobrar diretamente** (ex: um celular ocioso ajudando a rede) — em vez de receber SOL, ganha **espaço de tier gratuito** ao apresentar prova Merkle válida de um chunk, por época (1 época = 1 dia, `SECONDS_PER_EPOCH`), até uma vez por época por contribuição.
 - **Prova Merkle** (`verify_merkle_proof`, `keccak`): tanto o claim pago quanto a prova de contribuição gratuita dependem de reconstruir a raiz Merkle a partir de um chunk + seu índice + a lista de irmãos no caminho, e comparar com a raiz registrada no momento do `register_placement`/`register_free_contribution` — é assim que o contrato verifica "esse provedor realmente tem o dado", sem precisar armazenar o arquivo inteiro on-chain.
 
-**Ponto de atenção transparente para avaliação técnica:** o `declare_id!` do programa ainda está com o placeholder padrão do Anchor (`1111...1`) e o `Anchor.toml` aponta pra `devnet` — ou seja, o contrato está em fase de desenvolvimento/testes, não há um `program_id` de produção fixado neste snapshot do repositório. O poller de provas do lado do servidor (`sever/proofPoints.js`) já referencia um `STORAGE_PROGRAM_ID` de devnet via variável de ambiente, então a integração fim-a-fim (deploy → registro de placement → claim → poller lendo o estado on-chain) é o próximo passo natural de maturidade, não algo pendente de desenho.
 
 ## Camada 8 — Nó semente (`vagalun-node.js`)
 
@@ -305,41 +296,3 @@ cd hosting/client && npm install && npm run dev
 #    abrir app/ no Android Studio, ou usar o workflow "Gerar APK do Adla"
 #    (.github/workflows/apk.yml) via GitHub Actions -> workflow_dispatch
 ```
-
-O contrato Solana (`contract/`) é um projeto Anchor separado — requer `anchor build`/`anchor deploy` num cluster (o `Anchor.toml` já está apontado para `devnet`).
-
----
-
-## Estado atual — o que já funciona e o que é experimental
-
-Este projeto é jovem e o próprio código já documenta suas limitações honestamente — vale repetir aqui para quem for avaliar tecnicamente:
-
-**Já funciona de ponta a ponta (testável hoje):**
-- Fatiar, cifrar, aplicar Reed-Solomon e distribuir arquivos entre nós reais (TCP e relay/WebRTC).
-- Servir um site estático publicado por HTTP normal, com `Range` funcionando (importante para vídeo/streaming).
-- Signaling com histórico de sessões, filtragem correta de nós de infraestrutura, e persistência de peers no gateway sobrevivendo a restart.
-- Painel completo de hospedagem: cadastro, upload, editor de arquivos, domínio, anúncios em vídeo, consumo.
-- Pagamento de plano do SaaS via Solana Pay, com reconciliação automática no servidor.
-- Player P2P injetado automaticamente em vídeo/áudio publicado, com fallback HTTP transparente.
-
-**Em fase inicial / precisa de mais maturidade:**
-- **Descentralização real da camada de armazenamento** ainda depende, na prática, de poucos celulares e do "nó semente" rodando na mesma VPS do gateway — o próprio código chama isso de "bootstrap", não de estado final.
-- **O contrato `storage_market` está em devnet, com `declare_id` ainda no placeholder padrão** — a integração completa (deploy em produção → placement → claim → poller de prova) é o próximo marco natural, não um problema de arquitetura.
-- **Prova de posse (`challenge`)** implementada no nível de rede é um hash simples com nonce — é suficiente para monitoramento/auditoria leve, mas a prova que de fato move dinheiro é a Merkle proof do contrato, que é o mecanismo mais forte.
-- **Redundância dinâmica**: hoje `k`/`m` são calculados a partir de quantos celulares estão online no momento exato da publicação — não há ainda um mecanismo automático de "re-fatiar e redistribuir" se a rede encolher depois de publicado.
-
-## Roadmap
-
-- [ ] Deploy do contrato `storage_market` em mainnet com `program_id` fixo e auditoria de segurança.
-- [ ] Automatizar o ciclo completo `register_placement` → `submit_paid_claim` a partir do app (hoje o `DailyClaimWorker` já existe do lado do app; falta o `register_placement` automático do lado do publisher no momento da publicação).
-- [ ] Monitoramento/rebalanceamento automático quando a rede de nós encolhe (re-encode e redistribuição de shards órfãos).
-- [ ] Crescer a base de nós reais (celulares) além dos nós semente, com incentivos claros via o sistema de pontos → recompensa on-chain.
-- [ ] Auditoria de segurança independente da criptografia ponta a ponta e do modelo TOFU de domínio.
-
----
-
-<div align="center">
-
-*Documento gerado a partir da leitura completa do código-fonte do repositório, camada por camada — para avaliação técnica.*
-
-</div>
