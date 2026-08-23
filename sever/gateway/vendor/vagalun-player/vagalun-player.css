@@ -1,0 +1,319 @@
+/*
+  Identidade: "onda noturna" — fundo azul-petróleo profundo com um único
+  acento bioluminescente (o ciano-verde que remete a plâncton/ondas à noite,
+  puxando pro nome Vagalun/"vaga"). Tudo prefixado `.vgl-` e com CSS custom
+  properties pra quem incorporar poder sobrescrever sem tocar no bundle.
+*/
+.vgl-root {
+  --vgl-accent: #2fe6c4;
+  --vgl-accent-dim: #1b7a8c;
+  --vgl-bg: #050b12;
+  --vgl-text: #eaf6f4;
+  --vgl-control-h: 52px;
+  --vgl-radius: 10px;
+  --vgl-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: var(--vgl-bg);
+  border-radius: var(--vgl-radius);
+  overflow: hidden;
+  font-family: var(--vgl-font);
+  color: var(--vgl-text);
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+  isolation: isolate;
+}
+.vgl-root * { box-sizing: border-box; }
+.vgl-root:focus { outline: none; }
+.vgl-root.vgl-fullscreen { aspect-ratio: auto; border-radius: 0; }
+
+.vgl-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: #000;
+  cursor: pointer;
+}
+
+/* ---------- controles ---------- */
+.vgl-controls {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  padding: 22px 12px 8px;
+  background: linear-gradient(to top, rgba(2, 8, 14, 0.92), rgba(2, 8, 14, 0.55) 60%, transparent);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  z-index: 3;
+}
+.vgl-root.vgl-idle .vgl-controls,
+.vgl-root.vgl-idle .vgl-big-play { opacity: 0; pointer-events: none; transform: translateY(4px); }
+.vgl-root.vgl-idle { cursor: none; }
+
+.vgl-progress {
+  position: relative;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  margin-bottom: 2px;
+}
+.vgl-progress::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.22);
+}
+.vgl-progress-buffered,
+.vgl-progress-played {
+  position: absolute;
+  left: 0;
+  height: 4px;
+  border-radius: 2px;
+  pointer-events: none;
+}
+.vgl-progress-buffered { background: rgba(255, 255, 255, 0.38); width: 0%; }
+.vgl-progress-played { background: var(--vgl-accent); width: 0%; }
+.vgl-progress-scrubber {
+  position: absolute;
+  left: 0%;
+  width: 12px; height: 12px;
+  margin-left: -6px;
+  border-radius: 50%;
+  background: var(--vgl-accent);
+  box-shadow: 0 0 0 3px rgba(47, 230, 196, 0.25);
+  transform: scale(0.001);
+  transition: transform 0.15s ease;
+  pointer-events: none;
+}
+.vgl-progress:hover .vgl-progress-scrubber,
+.vgl-progress:focus .vgl-progress-scrubber { transform: scale(1); }
+
+.vgl-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--vgl-control-h);
+}
+.vgl-btn {
+  background: none;
+  border: none;
+  color: var(--vgl-text);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px; height: 36px;
+  border-radius: 6px;
+  padding: 0;
+  opacity: 0.92;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+.vgl-btn:hover { opacity: 1; background: rgba(255, 255, 255, 0.1); }
+.vgl-btn:focus-visible { outline: 2px solid var(--vgl-accent); outline-offset: 2px; }
+
+.vgl-volume-slider {
+  width: 70px;
+  accent-color: var(--vgl-accent);
+  cursor: pointer;
+}
+.vgl-time {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.9;
+  margin-left: 6px;
+  white-space: nowrap;
+}
+.vgl-spacer { flex: 1; }
+
+.vgl-settings-menu {
+  position: absolute;
+  right: 12px;
+  bottom: calc(var(--vgl-control-h) + 26px);
+  background: rgba(8, 16, 24, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 6px;
+  min-width: 160px;
+  max-height: 260px;
+  overflow-y: auto;
+  z-index: 5;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.vgl-settings-header {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.6;
+  padding: 8px 10px 4px;
+}
+.vgl-settings-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--vgl-text);
+  font-size: 13.5px;
+  padding: 7px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.vgl-settings-item:hover { background: rgba(255, 255, 255, 0.08); }
+.vgl-settings-item.active { color: var(--vgl-accent); }
+
+/* ---------- estados: play grande, spinner, erro ---------- */
+.vgl-big-play {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 68px; height: 48px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  z-index: 2;
+  transition: opacity 0.2s ease, transform 0.15s ease;
+}
+.vgl-big-play:hover { transform: scale(1.06); }
+
+.vgl-spinner {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 42px; height: 42px;
+  margin: -21px 0 0 -21px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.25);
+  border-top-color: var(--vgl-accent);
+  animation: vgl-spin 0.8s linear infinite;
+  z-index: 2;
+  pointer-events: none;
+}
+@keyframes vgl-spin { to { transform: rotate(360deg); } }
+
+.vgl-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: rgba(3, 8, 13, 0.9);
+  text-align: center;
+  padding: 20px;
+  z-index: 6;
+}
+.vgl-error[hidden] { display: none; }
+.vgl-error p { margin: 0; font-size: 14px; opacity: 0.9; max-width: 320px; }
+.vgl-error-retry {
+  width: auto;
+  height: auto;
+  padding: 8px 18px;
+  background: var(--vgl-accent);
+  color: #04211c;
+  font-weight: 600;
+  font-size: 13px;
+  border-radius: 20px;
+}
+.vgl-error-retry:hover { opacity: 0.9; background: var(--vgl-accent); }
+
+/* ---------- anúncios: pre-roll/mid-roll em vídeo (ocupa o player, tem skip) ---------- */
+.vgl-ad-break {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  z-index: 10;
+}
+.vgl-ad-video { width: 100%; height: 100%; object-fit: contain; cursor: pointer; }
+.vgl-ad-badge {
+  position: absolute;
+  top: 10px; left: 10px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  padding: 4px 9px;
+  border-radius: 4px;
+  pointer-events: none;
+}
+.vgl-ad-skip {
+  position: absolute;
+  bottom: 16px; right: 12px;
+  background: rgba(10, 14, 18, 0.85);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 4px;
+  font-size: 12.5px;
+  padding: 7px 12px;
+  cursor: pointer;
+}
+.vgl-ad-skip:disabled { opacity: 0.65; cursor: default; }
+.vgl-ad-skip:not(:disabled):hover { background: rgba(20, 26, 32, 0.95); }
+
+/*
+  Anúncio "overlay": banner PEQUENO, ancorado no canto inferior esquerdo,
+  posicionado ACIMA da barra de controles (nunca sobre ela) e nunca cobrindo
+  o centro do vídeo. Sempre com X visível. Isso é o que substitui o pop-up.
+*/
+.vgl-ad-overlay {
+  position: absolute;
+  left: 12px;
+  bottom: calc(var(--vgl-control-h) + 34px);
+  max-width: 42%;
+  z-index: 4;
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  animation: vgl-fade-in 0.25s ease;
+}
+@keyframes vgl-fade-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.vgl-ad-overlay-content {
+  display: block;
+  position: relative;
+  background: rgba(6, 12, 18, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  overflow: hidden;
+  text-decoration: none;
+  color: var(--vgl-text);
+  max-height: 84px;
+}
+.vgl-ad-overlay-content img { display: block; max-width: 100%; max-height: 84px; object-fit: cover; }
+.vgl-ad-overlay-label {
+  position: absolute;
+  left: 4px; bottom: 3px;
+  font-size: 9px;
+  letter-spacing: 0.03em;
+  background: rgba(0, 0, 0, 0.55);
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: rgba(255, 255, 255, 0.85);
+}
+.vgl-ad-overlay-close {
+  flex-shrink: 0;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(6, 12, 18, 0.88);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+.vgl-ad-overlay-close:hover { background: rgba(20, 26, 32, 0.95); }
+
+@media (max-width: 480px) {
+  .vgl-controls { padding: 16px 8px 6px; }
+  .vgl-time { font-size: 11.5px; }
+  .vgl-volume-slider { width: 46px; }
+  .vgl-ad-overlay { max-width: 62%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vgl-spinner { animation-duration: 1.6s; }
+  .vgl-ad-overlay { animation: none; }
+  .vgl-controls, .vgl-big-play { transition: none; }
+}

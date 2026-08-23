@@ -1,0 +1,42 @@
+{
+  "auto-test.gateway.local": {
+    "pubkeyB58": "Ha9z2FDmUV3ofusCLMg51MvsRoHcBvbb2xbGxURKvuJb",
+    "privateKeyDer": "MC4CAQAwBQYDK2VwBCIEIAQyxwJeLq7g+E7xs2RUo5oPO165GoMRe3xU1dTlDn8F",
+    "createdAt": 1786240150218
+  },
+  "c8c8ca76-037a-4e4a-9f4a-457011a6031a.vagalun.shop": {
+    "pubkeyB58": "CDeDapxaHxswYGADatVGd3SGm6BXiyVpKKTFA7XLNrpV",
+    "privateKeyDer": "MC4CAQAwBQYDK2VwBCIEIDKOOa/lvPtXEUp6DkoixZv7tjAU1CGHf/U4PphohQai",
+    "createdAt": 1786394112719
+  },
+  "762e748c-072d-423a-9ab1-b67ac0c2799e.vagalun.shop": {
+    "pubkeyB58": "9ks7aCYJuvXFnjP6YrdYA2wPe2cJ32gXbX99fvQWD32s",
+    "privateKeyDer": "MC4CAQAwBQYDK2VwBCIEINYFXdZ14zj7MzlCnXoXaV+lgTVg4si3zzvqplc+yNj/",
+    "createdAt": 1786400613411
+  },
+  "e409260f-bac7-4f43-98f8-fa09da8c362b.vagalun.shop": {
+    "pubkeyB58": "B7D56QMpt2oGVftRkLwNNLoPdpZnLynZvktfPTfjA3cM",
+    "privateKeyDer": "MC4CAQAwBQYDK2VwBCIEIKRJbTBVwCBDbpzdr1goRjtK25ss1Dx1xoLA2vEYd6nn",
+    "createdAt": 1787347619926
+  },
+  "cbc64798-e13e-40a0-af8b-47590b80a682.vagalun.shop": {
+    "pubkeyB58": "J3dHYpcPemquNTPFttvuDk22WqzYWDv9xYQB7P5Hgivt",
+    "privateKeyDer": "MC4CAQAwBQYDK2VwBCIEIL+neo9mBd8PICT3en1c/8OTupClCWeWzkdqG55VO0+B",
+    "createdAt": 1787493952228
+  },
+  "13c13228-49b8-4283-bd9c-abaffb26a1bb.vagalun.shop": {
+    "pubkeyB58": "EjswvNMATQEcpkHKHQqNMTUdE2bfbC1Ah4jphc32FASN",
+    "privateKeyDer": "MC4CAQAwBQYDK2VwBCIEIHDqKruVOCb4Zqj5kvWs2VmZd8LVNvkZnU74IHbt7+04",
+    "createdAt": 1787498038804
+  },
+  "f4386073-d592-4f81-a705-89a3aa00a30c.vagalun.shop": {
+    "pubkeyB58": "GF6c6EpnjGW7NK9qFW1WFR5XcERAoDJshysKVYqqaS6v",
+    "privateKeyDer": "MC4CAQAwBQYDK2VwBCIEIBGs8fY5g1SfANloaGZ2R6jiTS4IVfhvphT8cpM8UofY",
+    "createdAt": 1787498295274
+  },
+  "9fd85d1f-784e-4756-8b9b-75fe97a1e55b.vagalun.shop": {
+    "pubkeyB58": "EbPszDoXHrvFoBjdzGnEJsUZq428b6ybkBbQXNjqBD83",
+    "privateKeyDer": "MC4CAQAwBQYDK2VwBCIEIAS69UUepd6ddtB48AAso6yHXvXbs329TtNgtBCLu/GN",
+    "createdAt": 1787506018718
+  }
+}

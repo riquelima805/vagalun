@@ -1,0 +1,18 @@
+{
+  "name": "decentstorage-signaling-server",
+  "version": "1.0.0",
+  "description": "Relay de SDP/ICE (WebRTC signaling) pro app de armazenamento descentralizado — nunca vê bytes de arquivo.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "gateway": "node gateway/gateway.js",
+    "gateway:test": "node gateway/test/selftest.js"
+  },
+  "dependencies": {
+    "ws": "^8.21.3",
+    "@solana/web3.js": "^1.10.0",
+    "bs58": "^5.0.0",
+    "dotenv": "^17.4.2",
+    "tweetnacl": "^1.0.3"
+  }
+}

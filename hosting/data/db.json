@@ -1,0 +1,312 @@
+{
+  "users": [
+    [
+      "rique36927@gmail.com",
+      {
+        "userId": "fbd4f0e6-9807-4c80-8efa-4b38d833df9d",
+        "email": "rique36927@gmail.com",
+        "password": "$2b$10$Vigb33R2aTdcJD3o4dEO/.kJFNPb9Fb1wKJrJgLO6ZKmw49RLX6Oe",
+        "name": "rique",
+        "balance": 0,
+        "plan": "free",
+        "storageUsed": 0,
+        "trafficUsed": 0,
+        "createdAt": "2026-08-21T21:19:24.048Z",
+        "walletAddress": null
+      }
+    ],
+    [
+      "36927@gmail.com",
+      {
+        "userId": "39a2c480-d4d3-4c66-8b95-fc9c60c53b60",
+        "email": "36927@gmail.com",
+        "password": "$2b$10$szrx0yvW27/mzlrkUxFc7OUinhup1ktuv9Hc9TF5nFJW/MWy/1FbW",
+        "name": "123",
+        "balance": 0.06,
+        "plan": "business",
+        "storageUsed": 0,
+        "trafficUsed": 0,
+        "createdAt": "2026-08-23T03:38:26.702Z",
+        "walletAddress": null
+      }
+    ]
+  ],
+  "sites": [
+    [
+      "e409260f-bac7-4f43-98f8-fa09da8c362b",
+      {
+        "siteId": "e409260f-bac7-4f43-98f8-fa09da8c362b",
+        "userId": "fbd4f0e6-9807-4c80-8efa-4b38d833df9d",
+        "name": "adla",
+        "domain": "e409260f-bac7-4f43-98f8-fa09da8c362b.vagalun.shop",
+        "status": "ready",
+        "storageUsed": 11768,
+        "trafficUsed": 58840,
+        "url": "https://e409260f-bac7-4f43-98f8-fa09da8c362b.vagalun.shop",
+        "createdAt": "2026-08-21T21:23:58.937Z",
+        "files": "inde343x.zip",
+        "lastRoutes": [
+          {
+            "path": "/",
+            "fileId": "6fa7e9c9c6b71e4d8cef334c8103589d",
+            "contentType": "text/html; charset=utf-8",
+            "size": 11768
+          }
+        ],
+        "gatewayDomain": "e409260f-bac7-4f43-98f8-fa09da8c362b.vagalun.shop"
+      }
+    ],
+    [
+      "cbc64798-e13e-40a0-af8b-47590b80a682",
+      {
+        "siteId": "cbc64798-e13e-40a0-af8b-47590b80a682",
+        "userId": "39a2c480-d4d3-4c66-8b95-fc9c60c53b60",
+        "name": "woo",
+        "domain": "cbc64798-e13e-40a0-af8b-47590b80a682.vagalun.shop",
+        "status": "ready",
+        "storageUsed": 6497270,
+        "trafficUsed": 1681722,
+        "url": "https://cbc64798-e13e-40a0-af8b-47590b80a682.vagalun.shop",
+        "createdAt": "2026-08-23T12:38:29.534Z",
+        "files": "Music.zip",
+        "lastRoutes": [
+          {
+            "path": "/midia/video.mp4",
+            "fileId": "4fb9685652daf203b47735ddb7a9d20c",
+            "contentType": "video/mp4",
+            "size": 6492403
+          },
+          {
+            "path": "/",
+            "fileId": "377c7af8de1725268bb17b7144c3db18",
+            "contentType": "text/html; charset=utf-8",
+            "size": 1084
+          }
+        ],
+        "gatewayDomain": "cbc64798-e13e-40a0-af8b-47590b80a682.vagalun.shop"
+      }
+    ],
+    [
+      "13c13228-49b8-4283-bd9c-abaffb26a1bb",
+      {
+        "siteId": "13c13228-49b8-4283-bd9c-abaffb26a1bb",
+        "userId": "39a2c480-d4d3-4c66-8b95-fc9c60c53b60",
+        "name": "videoteste",
+        "domain": "13c13228-49b8-4283-bd9c-abaffb26a1bb.vagalun.shop",
+        "status": "ready",
+        "storageUsed": 99494385,
+        "trafficUsed": 6625260902,
+        "url": "https://13c13228-49b8-4283-bd9c-abaffb26a1bb.vagalun.shop",
+        "createdAt": "2026-08-23T14:25:47.865Z",
+        "files": "Music.zip",
+        "lastRoutes": [
+          {
+            "path": "/video.mp4",
+            "fileId": "ddb99fd15b18095f3cf90d968182831e",
+            "contentType": "video/mp4",
+            "size": 99492685
+          },
+          {
+            "path": "/",
+            "fileId": "6d7b523df6c3e227ad5df8a662e0fb78",
+            "contentType": "text/html; charset=utf-8",
+            "size": 1903
+          }
+        ],
+        "gatewayDomain": "13c13228-49b8-4283-bd9c-abaffb26a1bb.vagalun.shop"
+      }
+    ],
+    [
+      "f4386073-d592-4f81-a705-89a3aa00a30c",
+      {
+        "siteId": "f4386073-d592-4f81-a705-89a3aa00a30c",
+        "userId": "39a2c480-d4d3-4c66-8b95-fc9c60c53b60",
+        "name": "pup",
+        "domain": "f4386073-d592-4f81-a705-89a3aa00a30c.vagalun.shop",
+        "status": "ready",
+        "storageUsed": 1700,
+        "trafficUsed": 5100,
+        "url": "https://f4386073-d592-4f81-a705-89a3aa00a30c.vagalun.shop",
+        "createdAt": "2026-08-23T15:17:43.677Z",
+        "files": "index.zip",
+        "lastRoutes": [
+          {
+            "path": "/",
+            "fileId": "810c6b5d2c76e91ebd4451be9ac261b3",
+            "contentType": "text/html; charset=utf-8",
+            "size": 1700
+          }
+        ],
+        "gatewayDomain": "f4386073-d592-4f81-a705-89a3aa00a30c.vagalun.shop"
+      }
+    ],
+    [
+      "9fd85d1f-784e-4756-8b9b-75fe97a1e55b",
+      {
+        "siteId": "9fd85d1f-784e-4756-8b9b-75fe97a1e55b",
+        "userId": "39a2c480-d4d3-4c66-8b95-fc9c60c53b60",
+        "name": "snake",
+        "domain": "9fd85d1f-784e-4756-8b9b-75fe97a1e55b.vagalun.shop",
+        "status": "ready",
+        "storageUsed": 3354,
+        "trafficUsed": 6708,
+        "url": "https://9fd85d1f-784e-4756-8b9b-75fe97a1e55b.vagalun.shop",
+        "createdAt": "2026-08-23T17:26:26.049Z",
+        "files": "snake.zip",
+        "lastRoutes": [
+          {
+            "path": "/snake.html",
+            "fileId": "080d79ed13c50999750f3885ba8eb59f",
+            "contentType": "text/html; charset=utf-8",
+            "size": 3354
+          }
+        ],
+        "gatewayDomain": "9fd85d1f-784e-4756-8b9b-75fe97a1e55b.vagalun.shop"
+      }
+    ]
+  ],
+  "payments": [
+    [
+      "c5a94f14-ec79-493f-97d0-1bebb0427966",
+      {
+        "id": "c5a94f14-ec79-493f-97d0-1bebb0427966",
+        "userId": "fbd4f0e6-9807-4c80-8efa-4b38d833df9d",
+        "method": "solana",
+        "amountBRL": 5,
+        "solanaAmount": 0.01,
+        "plan": "basic",
+        "reference": "Hn3CMNKRBr2zFpZJSJkkrBAmPYgaZZZMqSrXm1iW9KVE",
+        "recipient": "DDE7RZCCbipWuBGwZLYszBQuMxvDSEF59225YoFzkFba",
+        "status": "pending",
+        "createdAt": "2026-08-23T02:40:14.615Z",
+        "signature": null
+      }
+    ],
+    [
+      "645f5755-4f01-46dc-b5f9-87b7d9915dc7",
+      {
+        "id": "645f5755-4f01-46dc-b5f9-87b7d9915dc7",
+        "userId": "39a2c480-d4d3-4c66-8b95-fc9c60c53b60",
+        "method": "solana",
+        "amountBRL": 10,
+        "solanaAmount": 0.02,
+        "plan": "pro",
+        "reference": "DYyW28AvQuThspqaaTzbBEebnd9pADHnQZ6abWimJ3mh",
+        "recipient": "DDE7RZCCbipWuBGwZLYszBQuMxvDSEF59225YoFzkFba",
+        "status": "pending",
+        "createdAt": "2026-08-23T03:38:53.701Z",
+        "signature": null
+      }
+    ],
+    [
+      "c4691ca0-2f39-4b54-8c36-9d6a78091d38",
+      {
+        "id": "c4691ca0-2f39-4b54-8c36-9d6a78091d38",
+        "userId": "39a2c480-d4d3-4c66-8b95-fc9c60c53b60",
+        "method": "solana",
+        "amountBRL": 5,
+        "solanaAmount": 0.01,
+        "plan": "basic",
+        "reference": "67fRJssC96oDifVBoGxBoDoy9rk4UUehmojHQ85Wjjyk",
+        "recipient": "DDE7RZCCbipWuBGwZLYszBQuMxvDSEF59225YoFzkFba",
+        "status": "pending",
+        "createdAt": "2026-08-23T03:42:54.818Z",
+        "signature": null
+      }
+    ],
+    [
+      "6a0e2caa-1086-48b3-8e95-c7b379c9e0fa",
+      {
+        "id": "6a0e2caa-1086-48b3-8e95-c7b379c9e0fa",
+        "userId": "39a2c480-d4d3-4c66-8b95-fc9c60c53b60",
+        "method": "solana",
+        "amountBRL": 10,
+        "solanaAmount": 0.02,
+        "plan": "pro",
+        "reference": "EvmrTMQzFzJ4zZcYNyza9UJoxWuw2bKixiTM8W49WHCb",
+        "recipient": "DDE7RZCCbipWuBGwZLYszBQuMxvDSEF59225YoFzkFba",
+        "status": "completed",
+        "createdAt": "2026-08-23T12:35:15.626Z",
+        "signature": "3dv5RupYRAxKbPovn8Pu46iQx868fDwrVMvo4YYifnRYzgFZP11asL3V6FscLwJbZueWtFQMd6gxBtFzhd4Lmy1y",
+        "confirmedAt": "2026-08-23T12:37:28.222Z"
+      }
+    ],
+    [
+      "8f30ec71-dfe5-4b15-b85d-748905c5752b",
+      {
+        "id": "8f30ec71-dfe5-4b15-b85d-748905c5752b",
+        "userId": "39a2c480-d4d3-4c66-8b95-fc9c60c53b60",
+        "method": "solana",
+        "amountBRL": 30,
+        "solanaAmount": 0.06,
+        "plan": "business",
+        "reference": "41LSk7XFAHQxSzPniE4DtUwbNKAWf8m8RpaZbmmbH2NL",
+        "recipient": "DDE7RZCCbipWuBGwZLYszBQuMxvDSEF59225YoFzkFba",
+        "status": "pending",
+        "createdAt": "2026-08-23T18:33:48.611Z",
+        "signature": null
+      }
+    ],
+    [
+      "08782bad-0a74-4c32-9634-b495e3394e14",
+      {
+        "id": "08782bad-0a74-4c32-9634-b495e3394e14",
+        "userId": "39a2c480-d4d3-4c66-8b95-fc9c60c53b60",
+        "method": "solana",
+        "amountBRL": 30,
+        "solanaAmount": 0.06,
+        "plan": "business",
+        "reference": "SDTBivNp797BR7FRCNh5sKVNryaRCpKt2sjj8PP6HY6",
+        "recipient": "DDE7RZCCbipWuBGwZLYszBQuMxvDSEF59225YoFzkFba",
+        "status": "completed",
+        "createdAt": "2026-08-23T19:03:01.109Z",
+        "signature": "3ZCA3CUiba5DoJL6yoX7vGRD18YkAkhEDvu7gZy9KAM66ztuaikwWSMCJfqXdU3tzEYYbdEAMr2X2gFkUjTvJvQj",
+        "confirmedAt": "2026-08-23T19:03:22.732Z"
+      }
+    ]
+  ],
+  "billingHistory": [
+    [
+      "fbd4f0e6-9807-4c80-8efa-4b38d833df9d",
+      [
+        {
+          "date": "2026-08-22",
+          "plan": "free",
+          "sitesCount": 1,
+          "costSol": 0,
+          "balanceAfter": 0,
+          "status": "ok"
+        },
+        {
+          "date": "2026-08-23",
+          "plan": "free",
+          "sitesCount": 1,
+          "costSol": 0,
+          "balanceAfter": 0,
+          "status": "ok"
+        },
+        {
+          "date": "2026-08-23",
+          "plan": "free",
+          "sitesCount": 1,
+          "costSol": 0,
+          "balanceAfter": 0,
+          "status": "ok"
+        }
+      ]
+    ],
+    [
+      "39a2c480-d4d3-4c66-8b95-fc9c60c53b60",
+      [
+        {
+          "date": "2026-08-23",
+          "plan": "pro",
+          "sitesCount": 4,
+          "costSol": 0.002666667,
+          "balanceAfter": 0,
+          "status": "frozen"
+        }
+      ]
+    ]
+  ]
+}

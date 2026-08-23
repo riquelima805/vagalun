@@ -1,0 +1,339 @@
+/* =========================================
+   LOGIN / AUTH
+========================================= */
+
+.auth-container {
+  min-height: calc(100vh - var(--header-height));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 40px 20px;
+
+  background:
+    radial-gradient(
+      circle at 50% 20%,
+      var(--primary-soft),
+      transparent 55%
+    ),
+    var(--bg-page);
+}
+
+
+/* =========================================
+   CARD
+========================================= */
+
+.auth-card {
+  width: 100%;
+  max-width: 430px;
+
+  padding: 42px;
+
+  background: var(--bg-surface);
+
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+
+  box-shadow: var(--shadow-float);
+}
+
+
+/* =========================================
+   HEADER
+========================================= */
+
+.auth-header {
+  text-align: center;
+  margin-bottom: 34px;
+}
+
+.auth-icon {
+  width: 60px;
+  height: 60px;
+
+  margin: 0 auto 18px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  color: var(--primary);
+
+  background: var(--primary-soft);
+
+  border: 1px solid var(--primary-soft-border);
+
+  border-radius: var(--radius-lg);
+}
+
+.auth-header h1 {
+  margin: 0;
+
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+
+  color: var(--text-primary);
+}
+
+.auth-header p {
+  margin: 9px 0 0;
+
+  font-size: 14px;
+
+  color: var(--text-secondary);
+}
+
+
+/* =========================================
+   FORM
+========================================= */
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: block;
+
+  margin-bottom: 8px;
+
+  font-size: 13px;
+  font-weight: 600;
+
+  color: var(--text-primary);
+}
+
+
+/* =========================================
+   INPUT
+========================================= */
+
+.input-wrapper {
+  position: relative;
+
+  display: flex;
+  align-items: center;
+}
+
+.input-wrapper input {
+  width: 100%;
+  height: 48px;
+
+  box-sizing: border-box;
+
+  padding: 0 46px;
+
+  border: 1.5px solid var(--border-default);
+  border-radius: var(--radius-md);
+
+  outline: none;
+
+  background: var(--bg-page);
+
+  color: var(--text-primary);
+
+  font-size: 14px;
+
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background 0.2s ease;
+}
+
+.input-wrapper input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.input-wrapper input:focus {
+  border-color: var(--primary);
+
+  background: var(--bg-surface);
+
+  box-shadow: 0 0 0 4px var(--primary-soft);
+}
+
+
+/* Ícone dentro do input */
+
+.input-icon {
+  position: absolute;
+
+  left: 16px;
+
+  color: var(--text-tertiary);
+
+  pointer-events: none;
+
+  transition: color 0.2s ease;
+}
+
+.input-wrapper:focus-within .input-icon {
+  color: var(--primary);
+}
+
+
+/* =========================================
+   MOSTRAR SENHA
+========================================= */
+
+.password-toggle {
+  position: absolute;
+
+  right: 13px;
+
+  width: 32px;
+  height: 32px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  border: 0;
+  background: transparent;
+
+  color: var(--text-tertiary);
+
+  cursor: pointer;
+
+  border-radius: var(--radius-sm);
+
+  transition:
+    color 0.2s ease,
+    background 0.2s ease;
+}
+
+.password-toggle:hover {
+  color: var(--primary);
+
+  background: var(--primary-soft);
+}
+
+
+/* =========================================
+   BOTÃO
+========================================= */
+
+.auth-card .btn-primary {
+  width: 100%;
+  height: 48px;
+
+  margin-top: 6px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+
+  border: none;
+  border-radius: var(--radius-md);
+
+  background: var(--primary);
+
+  color: #ffffff;
+
+  font-size: 15px;
+  font-weight: 700;
+
+  cursor: pointer;
+
+  box-shadow: var(--shadow-primary-glow);
+
+  transition:
+    transform 0.15s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.auth-card .btn-primary:hover:not(:disabled) {
+  background: var(--primary-hover);
+  transform: translateY(-1px);
+}
+
+.auth-card .btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.auth-card .btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+
+/* =========================================
+   ERRO
+========================================= */
+
+.alert {
+  padding: 12px 14px;
+
+  margin-bottom: 22px;
+
+  border-radius: var(--radius-md);
+
+  font-size: 13px;
+}
+
+.alert-error {
+  color: var(--danger);
+
+  background: var(--danger-soft);
+
+  border: 1px solid #fecdd3;
+}
+
+
+/* =========================================
+   FOOTER
+========================================= */
+
+.auth-footer {
+  margin: 26px 0 0;
+
+  text-align: center;
+
+  font-size: 13px;
+
+  color: var(--text-secondary);
+}
+
+.auth-footer a {
+  color: var(--primary);
+
+  font-weight: 600;
+
+  text-decoration: none;
+
+  transition: color 0.2s ease;
+}
+
+.auth-footer a:hover {
+  color: var(--primary-hover);
+
+  text-decoration: underline;
+}
+
+
+/* =========================================
+   MOBILE
+========================================= */
+
+@media (max-width: 500px) {
+
+  .auth-container {
+    padding: 25px 15px;
+  }
+
+  .auth-card {
+    padding: 30px 22px;
+
+    border-radius: var(--radius-lg);
+  }
+
+  .auth-header h1 {
+    font-size: 24px;
+  }
+
+}

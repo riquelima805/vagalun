@@ -1,0 +1,217 @@
+{
+  "closedSessions": [
+    {
+      "nodeId": "hosting-platform-1787347619710",
+      "connectedAt": "2026-08-21T21:26:59.720Z",
+      "disconnectedAt": "2026-08-21T21:27:00.011Z",
+      "durationSec": 0
+    },
+    {
+      "nodeId": "node-29238",
+      "connectedAt": "2026-08-21T21:26:15.054Z",
+      "disconnectedAt": "2026-08-21T21:33:37.206Z",
+      "durationSec": 442
+    },
+    {
+      "nodeId": "hosting-platform-1787348201507",
+      "connectedAt": "2026-08-21T21:36:41.510Z",
+      "disconnectedAt": "2026-08-21T21:36:41.527Z",
+      "durationSec": 0
+    },
+    {
+      "nodeId": "node-29238",
+      "connectedAt": "2026-08-21T21:36:22.195Z",
+      "disconnectedAt": "2026-08-21T22:12:49.806Z",
+      "durationSec": 2187
+    },
+    {
+      "nodeId": "hosting-platform-1787350849115",
+      "connectedAt": "2026-08-21T22:20:49.117Z",
+      "disconnectedAt": "2026-08-21T22:20:49.139Z",
+      "durationSec": 0
+    },
+    {
+      "nodeId": "node-29238",
+      "connectedAt": "2026-08-21T22:12:51.533Z",
+      "disconnectedAt": "2026-08-21T22:57:00.921Z",
+      "durationSec": 2649
+    },
+    {
+      "nodeId": "node-245582",
+      "connectedAt": "2026-08-22T14:40:35.213Z",
+      "disconnectedAt": "2026-08-22T14:40:53.863Z",
+      "durationSec": 18
+    },
+    {
+      "nodeId": "node-54861",
+      "connectedAt": "2026-08-23T00:09:20.899Z",
+      "disconnectedAt": "2026-08-23T00:09:35.422Z",
+      "durationSec": 14
+    },
+    {
+      "nodeId": "hosting-platform-1787451108451",
+      "connectedAt": "2026-08-23T02:11:48.461Z",
+      "disconnectedAt": "2026-08-23T02:11:48.546Z",
+      "durationSec": 0
+    },
+    {
+      "nodeId": "hosting-platform-1787489595865",
+      "connectedAt": "2026-08-23T12:53:15.871Z",
+      "disconnectedAt": "2026-08-23T12:53:35.935Z",
+      "durationSec": 20
+    },
+    {
+      "nodeId": "hosting-platform-1787489657511",
+      "connectedAt": "2026-08-23T12:54:17.514Z",
+      "disconnectedAt": "2026-08-23T12:54:37.621Z",
+      "durationSec": 20
+    },
+    {
+      "nodeId": "hosting-platform-1787489687022",
+      "connectedAt": "2026-08-23T12:54:47.023Z",
+      "disconnectedAt": "2026-08-23T12:55:07.031Z",
+      "durationSec": 20
+    },
+    {
+      "nodeId": "hosting-platform-1787489759549",
+      "connectedAt": "2026-08-23T12:55:59.605Z",
+      "disconnectedAt": "2026-08-23T12:56:19.730Z",
+      "durationSec": 20
+    },
+    {
+      "nodeId": "node-627060",
+      "connectedAt": "2026-08-23T12:55:34.843Z",
+      "disconnectedAt": "2026-08-23T12:57:04.763Z",
+      "durationSec": 89
+    },
+    {
+      "nodeId": "hosting-platform-1787489925879",
+      "connectedAt": "2026-08-23T12:58:45.881Z",
+      "disconnectedAt": "2026-08-23T12:59:05.887Z",
+      "durationSec": 20
+    },
+    {
+      "nodeId": "hosting-platform-1787489977292",
+      "connectedAt": "2026-08-23T12:59:37.294Z",
+      "disconnectedAt": "2026-08-23T12:59:57.303Z",
+      "durationSec": 20
+    },
+    {
+      "nodeId": "hosting-platform-1787490192488",
+      "connectedAt": "2026-08-23T13:03:12.489Z",
+      "disconnectedAt": "2026-08-23T13:03:32.497Z",
+      "durationSec": 20
+    },
+    {
+      "nodeId": "node-627060",
+      "connectedAt": "2026-08-23T12:59:28.575Z",
+      "disconnectedAt": "2026-08-23T13:04:36.237Z",
+      "durationSec": 307
+    },
+    {
+      "nodeId": "hosting-platform-1787490375636",
+      "connectedAt": "2026-08-23T13:06:15.638Z",
+      "disconnectedAt": "2026-08-23T13:06:35.644Z",
+      "durationSec": 20
+    },
+    {
+      "nodeId": "gateway-1",
+      "connectedAt": "2026-08-21T22:20:11.761Z",
+      "disconnectedAt": "2026-08-23T13:10:47.018Z",
+      "durationSec": 139835
+    },
+    {
+      "nodeId": "node-267708",
+      "connectedAt": "2026-08-23T13:41:44.272Z",
+      "disconnectedAt": "2026-08-23T13:44:33.461Z",
+      "durationSec": 169
+    },
+    {
+      "nodeId": "seed-1",
+      "connectedAt": "2026-08-23T13:56:09.101Z",
+      "disconnectedAt": "2026-08-23T13:58:43.204Z",
+      "durationSec": 154
+    },
+    {
+      "nodeId": "seed-1",
+      "connectedAt": "2026-08-23T13:58:44.150Z",
+      "disconnectedAt": "2026-08-23T14:00:39.315Z",
+      "durationSec": 115
+    },
+    {
+      "nodeId": "hosting-platform-1787493950909",
+      "connectedAt": "2026-08-23T14:05:50.915Z",
+      "disconnectedAt": "2026-08-23T14:05:52.333Z",
+      "durationSec": 1
+    },
+    {
+      "nodeId": "hosting-platform-1787496722011",
+      "connectedAt": "2026-08-23T14:52:02.018Z",
+      "disconnectedAt": "2026-08-23T14:52:22.658Z",
+      "durationSec": 20
+    },
+    {
+      "nodeId": "hosting-platform-1787498022013",
+      "connectedAt": "2026-08-23T15:13:42.021Z",
+      "disconnectedAt": "2026-08-23T15:13:58.935Z",
+      "durationSec": 16
+    },
+    {
+      "nodeId": "hosting-platform-1787498295253",
+      "connectedAt": "2026-08-23T15:18:15.259Z",
+      "disconnectedAt": "2026-08-23T15:18:15.273Z",
+      "durationSec": 0
+    },
+    {
+      "nodeId": "hosting-platform-1787498362276",
+      "connectedAt": "2026-08-23T15:19:22.278Z",
+      "disconnectedAt": "2026-08-23T15:19:22.289Z",
+      "durationSec": 0
+    },
+    {
+      "nodeId": "gateway-1",
+      "connectedAt": "2026-08-23T15:26:10.017Z",
+      "disconnectedAt": "2026-08-23T15:48:38.140Z",
+      "durationSec": 1348
+    },
+    {
+      "nodeId": "gateway-1",
+      "connectedAt": "2026-08-23T15:48:41.969Z",
+      "disconnectedAt": "2026-08-23T16:00:25.140Z",
+      "durationSec": 703
+    },
+    {
+      "nodeId": "hosting-platform-1787506018560",
+      "connectedAt": "2026-08-23T17:26:58.576Z",
+      "disconnectedAt": "2026-08-23T17:26:58.749Z",
+      "durationSec": 0
+    }
+  ],
+  "knownNodeIds": [
+    "node-29238",
+    "hosting-platform-1787347619710",
+    "hosting-platform-1787348201507",
+    "gateway-1",
+    "hosting-platform-1787350849115",
+    "node-245582",
+    "node-54861",
+    "hosting-platform-1787451108451",
+    "hosting-platform-1787489595865",
+    "hosting-platform-1787489657511",
+    "hosting-platform-1787489687022",
+    "node-627060",
+    "hosting-platform-1787489759549",
+    "hosting-platform-1787489925879",
+    "hosting-platform-1787489977292",
+    "hosting-platform-1787490192488",
+    "hosting-platform-1787490375636",
+    "node-267708",
+    "seed-1",
+    "hosting-platform-1787493950909",
+    "hosting-platform-1787496722011",
+    "hosting-platform-1787498022013",
+    "hosting-platform-1787498295253",
+    "hosting-platform-1787498362276",
+    "hosting-platform-1787506018560"
+  ]
+}
