@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🔥 Vagalun
+# Vagalun
 
 ### CDN livre de censura, hospedada em celulares, paga em Solana
 
