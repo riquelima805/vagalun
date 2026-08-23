@@ -8,7 +8,7 @@
 ![android](https://img.shields.io/badge/Android-Kotlin-8b0000?style=for-the-badge)
 ![solana](https://img.shields.io/badge/Solana-Anchor-a30000?style=for-the-badge)
 ![node](https://img.shields.io/badge/Node.js-Gateway%20%2B%20Signaling-c1121f?style=for-the-badge)
-![license](https://img.shields.io/badge/licença-a%20definir-660708?style=for-the-badge)
+![license](https://img.shields.io/badge/licença-%20MIT-660708?style=for-the-badge)
 
 *"Cada celular ligado é um pedacinho da internet que ninguém consegue desligar."*
 
