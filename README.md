@@ -14,13 +14,16 @@
 
 </div>
 
-Testes rapidos.
+---
 
-Hospedagem: 
 
-Site com video para teste de stream ( em nó de testes):
+## Testes rapidos.
 
-Mini game: 
+## Hospedagem: https://vagalun.shop/app/
+
+## Site com video para teste de stream ( em nó de teste): http://13c13228-49b8-4283-bd9c-abaffb26a1bb.vagalun.shop/
+
+# Mini game: https://9fd85d1f-784e-4756-8b9b-75fe97a1e55b.vagalun.shop/snake.html
 
 
 
