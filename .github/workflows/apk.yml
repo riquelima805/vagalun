@@ -1,34 +1,46 @@
-name: Gerar APK do Adla
+name: Gerar APK Release do Vagalun (não assinado)
 
 on:
-  workflow_dispatch: 
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: 'Nome da versão (ex: v1.1.0)'
+        required: true
+        default: 'v1.0.0'
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
+    permissions:
+      contents: write
     steps:
-    - name: Baixar o código do repositório
-      uses: actions/checkout@v4
+      - name: Baixar o código do repositório
+        uses: actions/checkout@v4
 
-    - name: Configurar o Java (JDK)
-      uses: actions/setup-java@v3
-      with:
-        java-version: '17'
-        distribution: 'temurin'
+      - name: Configurar o Java (JDK)
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
 
-    
-    - name: Configurar o Gradle
-      uses: gradle/actions/setup-gradle@v3
-      with:
-        gradle-version: '8.7' 
+      - name: Configurar o Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.7'
 
-    
-    - name: Compilar o APK de Teste (Debug)
-      run: gradle assembleDebug
+      - name: Compilar o APK Release
+        run: gradle assembleRelease
 
-    - name: Salvar e disponibilizar o APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: adla-apk-teste
-        path: app/build/outputs/apk/debug/*.apk
+      - name: Salvar e disponibilizar o APK como artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vagalun-apk-release
+          path: app/build/outputs/apk/release/*.apk
+
+      - name: Publicar Release no GitHub
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.version_name }}
+          name: Vagalun ${{ github.event.inputs.version_name }}
+          files: app/build/outputs/apk/release/*.apk
+          generate_release_notes: true
