@@ -31,22 +31,41 @@ jobs:
       - name: Compilar o APK Release
         run: gradle assembleRelease
 
-      - name: Assinar o APK automaticamente
-        uses: r3d-buckington/uber-apk-signer-action@v1.2.4
-        id: sign_apk
-        with:
-          target: 'app/build/outputs/apk/release/'
+      - name: Assinar o APK com chave de Debug nativa
+        run: |
+          # 1. Gerar Keystore temporária
+          keytool -genkeypair -v \
+            -keystore debug.keystore \
+            -alias androiddebugkey \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass android \
+            -keypass android \
+            -dname "CN=Android Debug,O=Android,C=US"
+
+          # 2. Localizar o apksigner do Android SDK e assinar o APK
+          BUILD_TOOLS_DIR=$(ls -d $ANDROID_HOME/build-tools/* | tail -n 1)
+          APK_PATH=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+
+          $BUILD_TOOLS_DIR/apksigner sign \
+            --ks debug.keystore \
+            --ks-pass pass:android \
+            --key-pass pass:android \
+            --ks-key-alias androiddebugkey \
+            --out app/build/outputs/apk/release/vagalun-release-signed.apk \
+            $APK_PATH
 
       - name: Salvar e disponibilizar o APK assinado como artifact
         uses: actions/upload-artifact@v4
         with:
           name: vagalun-apk-release-signed
-          path: ${{ steps.sign_apk.outputs.signedFiles }}
+          path: app/build/outputs/apk/release/vagalun-release-signed.apk
 
       - name: Publicar Release no GitHub
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.version_name }}
           name: Vagalun ${{ github.event.inputs.version_name }}
-          files: ${{ steps.sign_apk.outputs.signedFiles }}
+          files: app/build/outputs/apk/release/vagalun-release-signed.apk
           generate_release_notes: true
