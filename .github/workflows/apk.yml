@@ -1,71 +1,39 @@
-name: Gerar APK Release do Vagalun (Assinado)
+name: Gerar APK
 
 on:
-  workflow_dispatch:
-    inputs:
-      version_name:
-        description: 'Nome da versão (ex: v1.1.0)'
-        required: true
-        default: 'v1.0.0'
+  workflow_dispatch: # Permite rodar manualmente na aba Actions
+
+permissions:
+  contents: write # Permissão necessária para criar a Release e anexar o APK
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+
     steps:
-      - name: Baixar o código do repositório
-        uses: actions/checkout@v4
+    - name: Baixar o código do repositório
+      uses: actions/checkout@v4
 
-      - name: Configurar o Java (JDK)
-        uses: actions/setup-java@v3
-        with:
-          java-version: '17'
-          distribution: 'temurin'
+    - name: Configurar o Java (JDK)
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
 
-      - name: Configurar o Gradle
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: '8.7'
+    - name: Dar permissão ao Gradle
+      run: chmod +x gradlew
 
-      - name: Compilar o APK Release
-        run: gradle assembleRelease
+    - name: Compilar o APK de Teste (Debug)
+      run: ./gradlew assembleDebug
 
-      - name: Assinar o APK com chave de Debug nativa
-        run: |
-          # 1. Gerar Keystore temporária
-          keytool -genkeypair -v \
-            -keystore debug.keystore \
-            -alias androiddebugkey \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -storepass android \
-            -keypass android \
-            -dname "CN=Android Debug,O=Android,C=US"
-
-          # 2. Localizar o apksigner do Android SDK e assinar o APK
-          BUILD_TOOLS_DIR=$(ls -d $ANDROID_HOME/build-tools/* | tail -n 1)
-          APK_PATH=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
-
-          $BUILD_TOOLS_DIR/apksigner sign \
-            --ks debug.keystore \
-            --ks-pass pass:android \
-            --key-pass pass:android \
-            --ks-key-alias androiddebugkey \
-            --out app/build/outputs/apk/release/vagalun-release-signed.apk \
-            $APK_PATH
-
-      - name: Salvar e disponibilizar o APK assinado como artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: vagalun-apk-release-signed
-          path: app/build/outputs/apk/release/vagalun-release-signed.apk
-
-      - name: Publicar Release no GitHub
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.event.inputs.version_name }}
-          name: Vagalun ${{ github.event.inputs.version_name }}
-          files: app/build/outputs/apk/release/vagalun-release-signed.apk
-          generate_release_notes: true
+    - name: Publicar APK na aba Releases
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: "v1.0-${{ github.run_number }}"
+        name: "Build Adla APK #${{ github.run_number }}"
+        body: "APK gerado automaticamente via GitHub Actions."
+        draft: false
+        prerelease: false
+        files: app/build/outputs/apk/debug/*.apk
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
