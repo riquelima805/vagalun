@@ -1,10 +1,10 @@
-name: Gerar APk
+name: Gerar APK
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # Permite rodar manualmente na aba Actions
 
 permissions:
-  contents: write
+  contents: write # Permissão para criar a Release e anexar o APK
 
 jobs:
   build:
@@ -20,23 +20,22 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    # Usa a Action do Gradle oficial que gerencia permissões e cache automaticamente
     - name: Configurar o Gradle
       uses: gradle/actions/setup-gradle@v3
+      with:
+        gradle-version: '8.7'
 
-    # Se o gradlew estiver em uma pasta chamada "Adla", altere working-directory para ./Adla
     - name: Compilar o APK de Teste (Debug)
-      working-directory: .
-      run: ./gradlew assembleDebug
+      run: gradle assembleDebug
 
     - name: Publicar APK na aba Releases
       uses: softprops/action-gh-release@v2
       with:
         tag_name: "v1.0-${{ github.run_number }}"
         name: "Build Adla APK #${{ github.run_number }}"
-        body: "APK gerado automaticamente via GitHub Actions."
+        body: "APK gerado automaticamente via GitHub Actions (Versão Debug)."
         draft: false
         prerelease: false
-        files: "**/build/outputs/apk/debug/*.apk"
+        files: app/build/outputs/apk/debug/*.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
