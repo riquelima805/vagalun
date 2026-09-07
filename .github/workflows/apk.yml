@@ -32,8 +32,8 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         tag_name: "v1.0-${{ github.run_number }}"
-        name: "Build Adla APK #${{ github.run_number }}"
-        body: "APK gerado automaticamente via GitHub Actions (Versão Debug)."
+        name: "Build APK #${{ github.run_number }}"
+        body: "APK gerado  via GitHub Actions (Versão Debug)."
         draft: false
         prerelease: false
         files: app/build/outputs/apk/debug/*.apk
