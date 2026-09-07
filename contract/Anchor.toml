@@ -5,7 +5,7 @@ seeds = false
 skip-lint = false
 
 [programs.devnet]
-storage_market = "11111111111111111111111111111111111111111"
+storage_market = "7CAZvZmgbUES9pzr9H1i1EDk7b1mjX2wib8JTVSt7kGk"
 
 [registry]
 url = "https://api.apr.dev"
