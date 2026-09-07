@@ -81,21 +81,27 @@ import java.util.concurrent.TimeUnit
 import kotlin.math.sin
 
 
+// Paleta padronizada com a hospedagem de verdade: "Vagalun Light"
+// (assets/hosting/client/src/styles/theme.css) — tema CLARO, fundo
+// quase-creme, cards brancos, vermelho vibrante como cor de ação, texto
+// quase preto (nunca branco puro). Os nomes das propriedades (bg/bgCard/
+// textPrimary etc.) ficaram como estavam pra não precisar mexer em cada uso
+// espalhado pelo arquivo — só os valores mudaram de escuro pra claro.
 object VagalunColors {
-    val bg = Color(0xFF000000)          
-    val bgCard = Color(0xFF121212)      
-    val bgCard2 = Color(0xFF1E1E1E)     
-    
-    val red = Color(0xFFE50914)         
-    val redSoft = Color(0xFFB71C1C)     
-    
-    val textPrimary = Color(0xFFFFFFFF) 
-    val textSecondary = Color(0xFFA0A0A0) 
-    
+    val bg = Color(0xFFF3EEF0)           // --bg-page
+    val bgCard = Color(0xFFFFFFFF)       // --bg-surface
+    val bgCard2 = Color(0xFFEDE4E7)      // --bg-muted
 
-    val danger = Color(0xFFFF4D4D)
-    val warning = Color(0xFFFFB020)
-    val success = Color(0xFF2ECC71)
+    val red = Color(0xFFE11D3F)          // --primary
+    val redSoft = Color(0xFFC01235)      // --primary-hover
+
+    val textPrimary = Color(0xFF1F1B1D)  // --text-primary (quase preto, nunca branco)
+    val textSecondary = Color(0xFF52464A) // --text-secondary
+
+
+    val danger = Color(0xFFDC2626)
+    val warning = Color(0xFFD97706)
+    val success = Color(0xFF059669)
 }
 
 object VagalunTypography {
