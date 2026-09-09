@@ -1,0 +1,1031 @@
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const dgram = require('dgram');
+const net = require('net');
+const dns = require('dns').promises;
+const WebSocket = require('ws');
+const points = require('./points');
+const proofPoints = require('./proofPoints');
+const geoip = require('geoip-lite');
+
+// Nota: TLS deste server (VPS) é resolvido por domínio fixo + reverse
+// proxy/cert normal (fora deste arquivo). O TODO(tls-node) pendente é do
+// lado do PC node (index.js), que serve HTTP/RTMP/HTTP-FLV público sem
+// domínio fixo — ver comentário lá.
+const PORT = process.env.PORT || 8787;
+const ADMIN_TOKEN = process.env.SIGNALING_ADMIN_TOKEN || null;
+
+// ============ RATE LIMIT BÁSICO (endpoints públicos) ============
+// probe-turn/probe-tcp, heartbeat e o `signal` do WebSocket são acessíveis
+// sem login nenhum (por design — é assim que celular/nó de PC descobrem e
+// negociam WebRTC). Sem limite, dá pra: floodar a VPS de probes UDP/TCP
+// (amplificação/gasto de banda), spammar o directory de heartbeats, ou
+// floodar `signal` pra travar o peer alvo. Implementação simples de janela
+// deslizante em memória por chave (IP, ou IP+nodeId pro signal) — dá conta
+// do recado sem precisar de Redis pra um single-process como este.
+const rateBuckets = new Map(); // key -> array de timestamps (ms) das últimas requisições
+function rateLimited(key, limit, windowMs) {
+  const now = Date.now();
+  let arr = rateBuckets.get(key);
+  if (!arr) { arr = []; rateBuckets.set(key, arr); }
+  // remove entradas fora da janela
+  while (arr.length && now - arr[0] > windowMs) arr.shift();
+  if (arr.length >= limit) return true; // estourou o limite
+  arr.push(now);
+  return false;
+}
+// limpeza periódica pra não vazar memória com IPs que só apareceram uma vez
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, arr] of rateBuckets) {
+    while (arr.length && now - arr[0] > 10 * 60_000) arr.shift();
+    if (arr.length === 0) rateBuckets.delete(key);
+  }
+}, 60_000);
+
+function clientIp(req) {
+  return (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').toString().split(',')[0].trim();
+}
+
+function rateLimitResponse(res) {
+  res.writeHead(429, {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Admin-Token',
+    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+    'Retry-After': '5'
+  });
+  res.end(JSON.stringify({ ok: false, error: 'rate limit excedido, tenta de novo em alguns segundos' }));
+}
+
+// ============ NÓS DE INFRAESTRUTURA (gateway/publisher) ============
+// gateway-1 (sever/gateway/content.js) e hosting-platform-<timestamp>
+// (hosting/gateway-client/publish.cjs) se registram aqui só pra poder
+// mandar `relay` DIRETO a um nodeId específico (celular real) — eles não
+// são peers de verdade, não sabem responder handshake WebRTC (signal),
+// e não devem aparecer na descoberta de peers de ninguém. Sem esse
+// filtro, cada registro/desconexão de infra vira peer_joined/peer_left
+// pra TODOS os celulares reais conectados, que tentam negociar WebRTC
+// com eles e ficam travando em timeout à toa (era a causa do bug
+// "timeout esperando resposta de gateway-1").
+const INFRA_NODE_IDS = new Set(
+  (process.env.GATEWAY_RELAY_NODE_ID || 'gateway-1').split(',').map((s) => s.trim()).filter(Boolean)
+);
+function isInfraNodeId(nodeId) {
+  return INFRA_NODE_IDS.has(nodeId) || nodeId.startsWith('publisher-') || nodeId.startsWith('hosting-platform-');
+}
+
+// ============ MONITORAMENTO DE NÓS ============
+// O registry original só guardava Map<nodeId, ws> — quando o celular
+// desconectava, a informação sumia na hora (sem histórico, sem uptime,
+// sem "quantos nós já passaram pela rede"). Agora guardamos:
+//  - connectedAt por nó ativo (pra calcular uptime em tempo real)
+//  - histórico de sessões encerradas (connectedAt/disconnectedAt/duration),
+//    persistido em disco, últimas SESSIONS_HISTORY_MAX
+const dataDir = path.join(__dirname, 'data');
+const sessionsFile = path.join(dataDir, 'node-sessions.json');
+if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+
+const SESSIONS_HISTORY_MAX = Number(process.env.SESSIONS_HISTORY_MAX || 2000);
+let closedSessions = []; // [{ nodeId, connectedAt, disconnectedAt, durationSec }]
+const connectedAt = new Map(); // nodeId -> ISO timestamp da conexão atual
+const knownNodeIds = new Set(); // todo nodeId que já se registrou alguma vez (ativo ou não)
+
+// ============ POSSE DE nodeId (anti-hijack/anti-spoof) ============
+// nodeId -> pubkey (base58) que provou posse desse nodeId assinando ele
+// com a chave da wallet (mesmo esquema já usado pro sistema de pontos:
+// points.verifyOwnership). O PRIMEIRO a provar posse de um nodeId "trava"
+// ele pra aquela pubkey; qualquer register/heartbeat futuro pra esse mesmo
+// nodeId PRECISA vir assinado pela mesma wallet, senão é rejeitado.
+// Sem isso, tanto o `register` do WebSocket quanto o `/directory/heartbeat`
+// aceitavam qualquer nodeId auto-declarado sem prova nenhuma — bastava
+// alguém mandar `{type:'register', nodeId:'<nodeId de outra pessoa>'}` pra
+// sequestrar sessão/relay daquele nó, ou floodar o directory de PC nodes
+// com entradas falsas.
+const nodeOwners = new Map();
+
+function loadSessions() {
+  if (!fs.existsSync(sessionsFile)) return;
+  try {
+    const raw = JSON.parse(fs.readFileSync(sessionsFile, 'utf-8'));
+    closedSessions = raw.closedSessions || [];
+    (raw.knownNodeIds || []).forEach((id) => knownNodeIds.add(id));
+    Object.entries(raw.nodeOwners || {}).forEach(([nodeId, pubkey]) => nodeOwners.set(nodeId, pubkey));
+  } catch (e) {
+    console.error('[monitor] falha ao carregar node-sessions.json:', e.message);
+  }
+}
+
+let saveScheduled = false;
+function scheduleSaveSessions() {
+  if (saveScheduled) return;
+  saveScheduled = true;
+  setTimeout(() => {
+    saveScheduled = false;
+    try {
+      fs.writeFileSync(sessionsFile, JSON.stringify({
+        closedSessions: closedSessions.slice(-SESSIONS_HISTORY_MAX),
+        knownNodeIds: [...knownNodeIds],
+        nodeOwners: Object.fromEntries(nodeOwners)
+      }, null, 2));
+    } catch (e) {
+      console.error('[monitor] falha ao salvar node-sessions.json:', e.message);
+    }
+  }, 500);
+}
+
+loadSessions();
+
+/**
+ * Confirma posse de `nodeId` via assinatura Ed25519 da wallet (mesmo
+ * esquema do points.verifyOwnership: mensagem assinada = o próprio
+ * nodeId). Se for a primeira vez que esse nodeId aparece, a pubkey fica
+ * "dona" dele (persistido). Em usos seguintes, só quem tiver a mesma
+ * wallet consegue se registrar/mandar heartbeat com esse nodeId.
+ * Retorna { ok, pubkey?, error? }.
+ */
+function verifyAndBindOwnership(nodeId, pubkey, sig) {
+  if (typeof pubkey !== 'string' || !pubkey || typeof sig !== 'string' || !sig) {
+    return { ok: false, error: 'pubkey e sig (assinatura do nodeId) são obrigatórios' };
+  }
+  let valid = false;
+  try {
+    valid = points.verifyOwnership(pubkey, nodeId, sig);
+  } catch (_) {
+    valid = false;
+  }
+  if (!valid) return { ok: false, error: 'assinatura inválida pra essa pubkey/nodeId' };
+
+  const owner = nodeOwners.get(nodeId);
+  if (owner && owner !== pubkey) {
+    return { ok: false, error: 'nodeId já pertence a outra wallet' };
+  }
+  if (!owner) {
+    nodeOwners.set(nodeId, pubkey);
+    scheduleSaveSessions();
+  }
+  return { ok: true, pubkey };
+}
+
+function isAdmin(req) {
+  if (!ADMIN_TOKEN) return true; // modo dev
+  const given = req.headers['x-admin-token'] || '';
+  const a = Buffer.from(String(given));
+  const b = Buffer.from(ADMIN_TOKEN);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+function jsonResponse(res, status, body) {
+  res.writeHead(status, {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*', // o painel web roda num domínio/porta diferente
+    'Access-Control-Allow-Headers': 'Content-Type, X-Admin-Token',
+    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS'
+  });
+  res.end(JSON.stringify(body));
+}
+
+function readJsonBody(req, maxBytes = 1024 * 16) {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    let bytes = 0;
+    req.on('data', (chunk) => {
+      bytes += chunk.length;
+      if (bytes > maxBytes) { reject(new Error('body grande demais')); req.destroy(); return; }
+      data += chunk;
+    });
+    req.on('end', () => {
+      if (!data) return resolve({});
+      try { resolve(JSON.parse(data)); } catch (e) { reject(e); }
+    });
+    req.on('error', reject);
+  });
+}
+
+// ============ DIRETÓRIO DE NÓS DE PC (signaling+STUN/TURN) ============
+// Cada nó de PC (vagalun-pc-node) manda um "heartbeat" periódico aqui
+// avisando que tá online, com o endereço/credenciais que os celulares
+// devem usar pra falar com ele. O app mobile/gateway consulta
+// GET /directory/nodes pra descobrir nós de PC disponíveis ANTES de
+// cair pra este servidor (VPS) como fallback — a VPS só é usada de
+// verdade se a lista vier vazia ou nenhum nó de PC responder.
+const DIRECTORY_TTL_MS = Number(process.env.DIRECTORY_TTL_MS || 45_000); // sem heartbeat por esse tempo = considerado offline
+
+// Segredo compartilhado só com o backend PHP (nunca com o publisher nem
+// com o player) — é o que autentica "esse streamPath pode ser publicado
+// agora" antes do server central mintar uma URL de push assinada pro
+// node escolhido. Sem isso configurado, /live/push-url fica desligado
+// (fail-closed) em vez de aceitar qualquer pedido sem checagem.
+const LIVE_PUSH_SECRET = process.env.LIVE_PUSH_SECRET || null;
+const pcDirectory = new Map(); // nodeId (do diretório) -> { ...info, lastSeen }
+
+// ------------------------------------------------------------------
+// Item 8: "quem serve qual streamPath agora" — construído em cima do
+// mesmo heartbeat que já existia, só que agora o server PARA de jogar
+// fora o `liveStreamsHealth` que o node de PC já manda. streamPath ->
+// { nodeId, publicHost, mediaHttpPort, kbps, lastHealthAt }.
+// Migração de node é "de graça": se o publisher reconectar em outro
+// node com o MESMO streamPath, o próximo heartbeat desse node novo
+// simplesmente sobrescreve a entrada (last-write-wins), e quem tá
+// assistindo é avisado via WS (item 9).
+const liveStreamIndex = new Map();
+
+// streamPath -> Set<ws> de players que pediram pra saber onde esse
+// stream está sendo servido agora (case 'watch_live' mais abaixo).
+const liveWatchers = new Map();
+
+function pullUrlFor(entry, streamPath) {
+  // play não exige auth (auth.play=false no media.js do node), então a
+  // URL de pull não precisa ser assinada — só a de push (transmitir).
+  return `http://${entry.publicHost}:${entry.mediaHttpPort}${streamPath}.flv`;
+}
+
+function notifyLiveWatchers(streamPath, payload) {
+  const set = liveWatchers.get(streamPath);
+  if (!set || set.size === 0) return;
+  const data = JSON.stringify(payload);
+  for (const ws of set) {
+    if (ws.readyState === WebSocket.OPEN) ws.send(data);
+  }
+}
+
+/**
+ * Atualiza o índice central a partir do `liveStreamsHealth` que veio num
+ * heartbeat. `nodeInfo` é a entry já normalizada do pcDirectory (tem
+ * publicHost/mediaHttpPort). Notifica watchers só quando algo relevante
+ * muda (apareceu, migrou de node, ou terminou) — não a cada heartbeat,
+ * pra não floodar os players com o mesmo kbps repetido.
+ */
+function applyLiveHealth(nodeId, nodeInfo, liveStreamsHealth) {
+  const now = Date.now();
+  const reportedPaths = new Set();
+
+  for (const item of Array.isArray(liveStreamsHealth) ? liveStreamsHealth : []) {
+    const streamPath = String(item?.streamPath || '').trim();
+    if (!streamPath || !streamPath.startsWith('/')) continue; // evita entradas malformadas/injeção de chave estranha
+    const kbps = Number(item.kbps) || 0;
+    reportedPaths.add(streamPath);
+
+    const prev = liveStreamIndex.get(streamPath);
+    const migrated = !prev || prev.nodeId !== nodeId;
+    const entry = {
+      nodeId,
+      publicHost: nodeInfo.publicHost,
+      mediaHttpPort: nodeInfo.mediaHttpPort,
+      kbps,
+      lastHealthAt: now,
+    };
+    liveStreamIndex.set(streamPath, entry);
+
+    if (migrated) {
+      notifyLiveWatchers(streamPath, {
+        type: 'live_location',
+        streamPath,
+        nodeId,
+        publicHost: entry.publicHost,
+        mediaHttpPort: entry.mediaHttpPort,
+        pullUrl: pullUrlFor(entry, streamPath),
+        kbps,
+      });
+    }
+  }
+
+  // qualquer streamPath que ESTE node servia antes e não reportou mais
+  // agora terminou localmente (encerrou a live ali) — remove do índice.
+  // Se ele migrou pra outro node, a entrada já foi sobrescrita acima
+  // pelo heartbeat do node novo, então esse delete não afeta o node novo.
+  for (const [streamPath, entry] of liveStreamIndex) {
+    if (entry.nodeId === nodeId && !reportedPaths.has(streamPath)) {
+      liveStreamIndex.delete(streamPath);
+      notifyLiveWatchers(streamPath, { type: 'live_offline', streamPath });
+    }
+  }
+}
+
+// ---- Geolocalização por IP (base local geoip-lite, sem chamada externa) ----
+// Usada pra ordenar /directory/nodes pelo nó de PC mais perto de quem tá
+// pedindo, em vez do sort aleatório de antes. geoip-lite é aproximado
+// (nível cidade/região), mas é de graça, offline, e mais que suficiente
+// pra decidir "esse nó tá mais perto que aquele" — não precisa de precisão
+// de metro. Se não conseguir geolocalizar (IP local/privado, base sem
+// aquele range), cai pro comportamento antigo (embaralhado) como fallback.
+function geoOf(ip) {
+  if (!ip) return null;
+  // remove prefixo IPv6-mapped (::ffff:1.2.3.4), comum atrás de proxy
+  const clean = ip.replace(/^::ffff:/, '');
+  const g = geoip.lookup(clean);
+  if (!g || !g.ll) return null;
+  return { lat: g.ll[0], lon: g.ll[1], country: g.country, city: g.city };
+}
+
+// Distância aproximada em km entre duas coordenadas (fórmula de haversine).
+// Só usada pra ORDENAR nós entre si, não precisa de precisão geodésica.
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+function clearLiveStreamsOfNode(nodeId) {
+  for (const [streamPath, entry] of liveStreamIndex) {
+    if (entry.nodeId === nodeId) {
+      liveStreamIndex.delete(streamPath);
+      notifyLiveWatchers(streamPath, { type: 'live_offline', streamPath });
+    }
+  }
+}
+
+function pruneDirectory() {
+  const now = Date.now();
+  for (const [id, info] of pcDirectory) {
+    if (now - info.lastSeen > DIRECTORY_TTL_MS) {
+      pcDirectory.delete(id);
+      // node sumiu sem mandar DELETE (crash/queda) — as lives que ele
+      // servia ficariam "fantasma" no índice pra sempre se não limpar aqui.
+      clearLiveStreamsOfNode(id);
+    }
+  }
+}
+setInterval(pruneDirectory, 10_000);
+
+/**
+ * Testa se host:port (o TURN de um nó de PC) responde de verdade a uma
+ * requisição de fora — é o teste mais confiável que existe, porque a
+ * VPS é um ponto de vista genuinamente externo (o próprio nó não
+ * consegue se auto-testar de forma confiável, já que qualquer coisa
+ * rodando nele mesmo não passa pelo NAT/roteador de verdade).
+ *
+ * Manda um STUN Binding Request (RFC 5389) via UDP — node-turn responde
+ * STUN nativamente, então "veio resposta" = porta alcançável de fora.
+ */
+function probeStunReachability(host, port, timeoutMs = 2500) {
+  return new Promise((resolve) => {
+    // host pode vir em IPv4 ou IPv6 (ex.: nó de PC atrás de operadora que só
+    // dá IPv6 público, tipo Claro/FLN) — socket fixo 'udp4' falhava seco
+    // (erro síncrono no send) sempre que o host era IPv6, e o probe nunca
+    // dava certo, então o nó nunca saía de "checando" pra "live".
+    const isV6 = net.isIPv6(host);
+    const socket = dgram.createSocket(isV6 ? 'udp6' : 'udp4');
+    const transactionId = crypto.randomBytes(12);
+    const packet = Buffer.alloc(20);
+    packet.writeUInt16BE(0x0001, 0);        // tipo: Binding Request
+    packet.writeUInt16BE(0x0000, 2);        // tamanho do corpo (nenhum atributo)
+    packet.writeUInt32BE(0x2112A442, 4);    // magic cookie (STUN)
+    transactionId.copy(packet, 8);
+
+    let done = false;
+    const finish = (reachable) => {
+      if (done) return;
+      done = true;
+      try { socket.close(); } catch (_) {}
+      resolve(reachable);
+    };
+
+    const timer = setTimeout(() => finish(false), timeoutMs);
+
+    socket.on('message', (msg) => {
+      clearTimeout(timer);
+      // resposta STUN válida começa com 0x0101 (Binding Success) ou
+      // 0x0111 (Binding Error) — qualquer um dos dois já prova que
+      // algo respondeu na porta de verdade, o que já basta pro nosso
+      // propósito (existência de um serviço STUN/TURN vivo ali).
+      const type = msg.length >= 2 ? msg.readUInt16BE(0) : 0;
+      finish(type === 0x0101 || type === 0x0111);
+    });
+    socket.on('error', () => { clearTimeout(timer); finish(false); });
+
+    try {
+      socket.send(packet, port, host);
+    } catch (_) {
+      clearTimeout(timer);
+      finish(false);
+    }
+  });
+}
+
+// ============ ANTI-SSRF pro probe (/directory/probe-turn e probe-tcp) ============
+// Antes, `host` vinha 100% do corpo da requisição e ia direto pro
+// dgram/net.connect: qualquer um podia mandar host=169.254.169.254 (endpoint
+// de metadata de cloud), 127.0.0.1, 10.x/172.16.x/192.168.x (rede interna da
+// VPS/provedor) ou um domínio próprio resolvendo pra um desses — usando a
+// VPS como proxy cego pra sondar/alcançar rede interna (SSRF). Agora resolve
+// o host e valida o IP resultante ANTES de sondar, e a sondagem usa o IP já
+// resolvido (não o hostname de novo), o que também fecha DNS rebinding
+// (trocar o DNS entre a validação e o probe).
+function isBlockedIp(ip) {
+  if (net.isIP(ip) === 4) {
+    const o = ip.split('.').map(Number);
+    if (o.some((n) => Number.isNaN(n))) return true;
+    if (o[0] === 0) return true; // 0.0.0.0/8
+    if (o[0] === 10) return true; // 10.0.0.0/8
+    if (o[0] === 127) return true; // 127.0.0.0/8 loopback
+    if (o[0] === 169 && o[1] === 254) return true; // link-local + metadata cloud
+    if (o[0] === 172 && o[1] >= 16 && o[1] <= 31) return true; // 172.16.0.0/12
+    if (o[0] === 192 && o[1] === 168) return true; // 192.168.0.0/16
+    if (o[0] === 100 && o[1] >= 64 && o[1] <= 127) return true; // 100.64.0.0/10 CGNAT
+    if (o[0] === 192 && o[1] === 0 && o[2] === 0) return true; // 192.0.0.0/24
+    if (o[0] === 192 && o[1] === 0 && o[2] === 2) return true; // 192.0.2.0/24 (TEST-NET-1)
+    if (o[0] === 198 && (o[1] === 18 || o[1] === 19)) return true; // 198.18.0.0/15 benchmark
+    if (o[0] === 198 && o[1] === 51 && o[2] === 100) return true; // TEST-NET-2
+    if (o[0] === 203 && o[1] === 0 && o[2] === 113) return true; // TEST-NET-3
+    if (o[0] >= 224) return true; // multicast (224/4) + reservado (240/4) + broadcast
+    return false;
+  }
+  if (net.isIP(ip) === 6) {
+    const low = ip.toLowerCase();
+    if (low === '::1' || low === '::') return true; // loopback / unspecified
+    if (low.startsWith('::ffff:')) return isBlockedIp(low.replace('::ffff:', '')); // v4-mapped
+    if (/^fe[89ab][0-9a-f]:/.test(low)) return true; // fe80::/10 link-local
+    if (/^f[cd][0-9a-f]{2}:/.test(low)) return true; // fc00::/7 ULA
+    if (low.startsWith('ff')) return true; // multicast
+    if (low.startsWith('2001:db8:')) return true; // documentação
+    return false;
+  }
+  return true; // não é IP válido nenhum -> bloqueia por padrão
+}
+
+async function resolveAndValidateHost(host) {
+  let ip = host;
+  if (!net.isIP(host)) {
+    try {
+      const r = await dns.lookup(host);
+      ip = r.address;
+    } catch (_) {
+      return null; // não resolveu -> não sonda
+    }
+  }
+  if (isBlockedIp(ip)) return null;
+  return ip;
+}
+
+/**
+ * Teste de alcance genérico via TCP puro — usado pra portas que não
+ * falam STUN (ex.: RTMP da camada de live streaming). Só tenta abrir
+ * a conexão TCP; se conectar, a porta está alcançável de fora.
+ */
+function probeTcpReachability(host, port, timeoutMs = 3000) {
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    let done = false;
+    const finish = (reachable) => {
+      if (done) return;
+      done = true;
+      try { socket.destroy(); } catch (_) {}
+      resolve(reachable);
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => finish(true));
+    socket.once('timeout', () => finish(false));
+    socket.once('error', () => finish(false));
+    try {
+      socket.connect(port, host);
+    } catch (_) {
+      finish(false);
+    }
+  });
+}
+
+const httpServer = http.createServer((req, res) => {
+  // Preflight CORS PRECISA ser respondido antes de qualquer checagem de rota
+  // ou de admin token — senão o navegador nunca chega a mandar a requisição
+  // real (GET /nodes etc.), porque o preflight (OPTIONS) não manda o header
+  // X-Admin-Token, cairia no isAdmin() das rotas abaixo, tomaria 401 sem os
+  // headers de CORS corretos, e o navegador bloqueia tudo por CORS — mesmo
+  // com o servidor 100% no ar (era a causa do "não foi possível conectar
+  // ao signaling server" no painel, quando VITE_SIGNALING_ADMIN_TOKEN está
+  // configurado).
+  if (req.method === 'OPTIONS') return jsonResponse(res, 204, {});
+
+  // ---- Diretório de nós de PC (signaling+STUN/TURN descentralizado) ----
+  if (req.url === '/directory/probe-turn' && req.method === 'POST') {
+    if (rateLimited(`probe:${clientIp(req)}`, 20, 60_000)) return rateLimitResponse(res);
+    readJsonBody(req).then(async (body) => {
+      const host = String(body.host || '').trim().slice(0, 255);
+      const port = Number(body.port);
+      if (!host || !port) return jsonResponse(res, 400, { ok: false, error: 'campos obrigatórios: host, port' });
+      const safeIp = await resolveAndValidateHost(host);
+      if (!safeIp) return jsonResponse(res, 400, { ok: false, error: 'host não permitido (rede privada/reservada ou não resolvível)' });
+      const reachable = await probeStunReachability(safeIp, port);
+      return jsonResponse(res, 200, { ok: true, reachable });
+    }).catch((err) => jsonResponse(res, 400, { ok: false, error: err.message }));
+    return;
+  }
+
+  if (req.url === '/directory/probe-tcp' && req.method === 'POST') {
+    if (rateLimited(`probe:${clientIp(req)}`, 20, 60_000)) return rateLimitResponse(res);
+    readJsonBody(req).then(async (body) => {
+      const host = String(body.host || '').trim().slice(0, 255);
+      const port = Number(body.port);
+      if (!host || !port) return jsonResponse(res, 400, { ok: false, error: 'campos obrigatórios: host, port' });
+      const safeIp = await resolveAndValidateHost(host);
+      if (!safeIp) return jsonResponse(res, 400, { ok: false, error: 'host não permitido (rede privada/reservada ou não resolvível)' });
+      const reachable = await probeTcpReachability(safeIp, port);
+      return jsonResponse(res, 200, { ok: true, reachable });
+    }).catch((err) => jsonResponse(res, 400, { ok: false, error: err.message }));
+    return;
+  }
+
+  if (req.url === '/directory/heartbeat' && req.method === 'POST') {
+    if (rateLimited(`heartbeat:${clientIp(req)}`, 30, 60_000)) return rateLimitResponse(res);
+    readJsonBody(req).then((body) => {
+      const nodeId = String(body.nodeId || '').trim().slice(0, 128);
+      const publicHost = String(body.publicHost || '').trim().slice(0, 255);
+      const httpPort = Number(body.httpPort);
+      const turnPort = Number(body.turnPort);
+      const turnUser = String(body.turnUser || '').slice(0, 128);
+      const turnSecret = String(body.turnSecret || '').slice(0, 128);
+      const turnCapable = body.turnCapable === true; // o próprio nó já fez o probe antes de mandar
+      const mediaCapable = body.mediaCapable === true;
+      const mediaRtmpPort = Number(body.mediaRtmpPort) || null;
+      const mediaHttpPort = Number(body.mediaHttpPort) || null;
+      // faltava: o node manda isso desde sempre, mas o server descartava.
+      // Sem guardar, o server nunca consegue mintar uma URL de push
+      // assinada em nome de um publisher (item 9 — ver /live/push-url).
+      const mediaSecret = String(body.mediaSecret || '').slice(0, 256);
+
+      if (!nodeId || !publicHost || !httpPort || !turnPort || !turnUser || !turnSecret) {
+        return jsonResponse(res, 400, { ok: false, error: 'campos obrigatórios: nodeId, publicHost, httpPort, turnPort, turnUser, turnSecret' });
+      }
+
+      // Antes: qualquer POST não-autenticado conseguia inserir/atualizar
+      // qualquer nodeId no diretório público de nós de PC (spoof de nó,
+      // sequestro de nodeId alheio, ou flood de entradas falsas com
+      // turnUser/turnSecret inventados). Agora exige prova de posse da
+      // wallet dona daquele nodeId (mesma assinatura Ed25519 do register).
+      const ownership = verifyAndBindOwnership(nodeId, body.pubkey, body.sig);
+      if (!ownership.ok) {
+        return jsonResponse(res, 401, { ok: false, error: ownership.error });
+      }
+
+      const remoteIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').toString().split(',')[0].trim();
+      // geolocaliza pelo IP de origem do heartbeat (não pelo publicHost
+      // declarado, que pode ser domínio) — é o IP real que bateu na VPS
+      const geo = geoOf(remoteIp);
+
+      pcDirectory.set(nodeId, {
+        nodeId, publicHost, httpPort, turnPort, turnUser, turnSecret, turnCapable,
+        mediaCapable, mediaRtmpPort, mediaHttpPort, mediaSecret,
+        remoteIp, geo,
+        firstSeen: pcDirectory.get(nodeId)?.firstSeen || new Date().toISOString(),
+        lastSeen: Date.now(),
+      });
+
+      // Item 8: processa a saúde de live que o node já manda (antes isso
+      // era ignorado). liveStreamsHealth vem de mediaLayer.getHealthSnapshot()
+      // no index.js — lista de streamPath+kbps que esse node está servindo
+      // agora mesmo.
+      if (mediaCapable && mediaHttpPort) {
+        applyLiveHealth(nodeId, { publicHost, mediaHttpPort }, body.liveStreamsHealth);
+      }
+
+      return jsonResponse(res, 200, { ok: true, ttlMs: DIRECTORY_TTL_MS });
+    }).catch((err) => jsonResponse(res, 400, { ok: false, error: err.message }));
+    return;
+  }
+
+  if (req.url.startsWith('/directory/heartbeat') && req.method === 'DELETE') {
+    if (rateLimited(`heartbeat:${clientIp(req)}`, 30, 60_000)) return rateLimitResponse(res);
+    readJsonBody(req).then((body) => {
+      const nodeId = String(body.nodeId || '').trim();
+      if (!nodeId) return jsonResponse(res, 200, { ok: true });
+      // mesma proteção do heartbeat: só quem provar posse do nodeId
+      // (ou um nodeId que nunca teve dono provado) pode removê-lo.
+      const owner = nodeOwners.get(nodeId);
+      if (owner) {
+        const ownership = verifyAndBindOwnership(nodeId, body.pubkey, body.sig);
+        if (!ownership.ok) return jsonResponse(res, 401, { ok: false, error: ownership.error });
+      }
+      pcDirectory.delete(nodeId);
+      clearLiveStreamsOfNode(nodeId);
+      return jsonResponse(res, 200, { ok: true });
+    }).catch(() => jsonResponse(res, 200, { ok: true }));
+    return;
+  }
+
+  // Fallback REST do índice central (item 8) — pro player conseguir um
+  // primeiro fix antes de abrir o WS, ou pra debug/admin. A fonte de
+  // verdade em tempo real continua sendo o push via WS (watch_live).
+  if (req.url.startsWith('/live/where')) {
+    if (rateLimited(`live-where:${clientIp(req)}`, 30, 10_000)) return rateLimitResponse(res);
+    const { searchParams } = new URL(req.url, 'http://localhost');
+    const streamPath = (searchParams.get('streamPath') || '').trim();
+    if (!streamPath) return jsonResponse(res, 400, { ok: false, error: 'streamPath obrigatório' });
+    const entry = liveStreamIndex.get(streamPath);
+    if (!entry) return jsonResponse(res, 404, { ok: false, error: 'stream não encontrado/offline' });
+    return jsonResponse(res, 200, {
+      ok: true, streamPath, nodeId: entry.nodeId, publicHost: entry.publicHost,
+      mediaHttpPort: entry.mediaHttpPort, pullUrl: pullUrlFor(entry, streamPath), kbps: entry.kbps,
+    });
+  }
+
+  if (req.url === '/live/list') {
+    if (rateLimited(`live-list:${clientIp(req)}`, 10, 10_000)) return rateLimitResponse(res);
+    const streams = [...liveStreamIndex.entries()].map(([streamPath, entry]) => ({
+      streamPath, nodeId: entry.nodeId, kbps: entry.kbps, pullUrl: pullUrlFor(entry, streamPath),
+    }));
+    return jsonResponse(res, 200, { ok: true, streams });
+  }
+
+  // Item 9 (lado publisher): o backend PHP é quem decide "essa conta pode
+  // transmitir nesse streamPath agora" — aqui só verificamos a assinatura
+  // dele (LIVE_PUSH_SECRET) e traduzimos isso numa URL de push assinada
+  // pro node de mídia escolhido. O publisher NUNCA vê mediaSecret de node
+  // nenhum, só a URL já pronta — e chama de novo (com um novo token do
+  // PHP) toda vez que precisar reconectar em outro node.
+  //
+  // Contrato esperado do PHP (documentar do lado de lá):
+  //   exp = unix seconds, até ~10min no futuro
+  //   sig = hex(HMAC_SHA256(`${streamPath}:${exp}`, LIVE_PUSH_SECRET))
+  //   POST /live/push-url  { streamPath, exp, sig, nodeId? }
+  if (req.url === '/live/push-url' && req.method === 'POST') {
+    if (rateLimited(`live-push-url:${clientIp(req)}`, 20, 60_000)) return rateLimitResponse(res);
+    if (!LIVE_PUSH_SECRET) {
+      return jsonResponse(res, 503, { ok: false, error: 'LIVE_PUSH_SECRET não configurado no server — endpoint desligado' });
+    }
+    readJsonBody(req).then((body) => {
+      const streamPath = String(body.streamPath || '').trim();
+      const exp = Number(body.exp);
+      const sig = String(body.sig || '');
+      const requestedNodeId = body.nodeId ? String(body.nodeId).trim() : null;
+
+      if (!streamPath || !streamPath.startsWith('/')) {
+        return jsonResponse(res, 400, { ok: false, error: 'streamPath inválido' });
+      }
+      if (!Number.isFinite(exp) || exp < Date.now() / 1000 || exp > Date.now() / 1000 + 600) {
+        return jsonResponse(res, 400, { ok: false, error: 'exp expirado ou longe demais no futuro (máx. 10min)' });
+      }
+
+      const expected = crypto.createHmac('sha256', LIVE_PUSH_SECRET).update(`${streamPath}:${exp}`).digest('hex');
+      const expectedBuf = Buffer.from(expected, 'hex');
+      const sigBuf = Buffer.from(sig, 'hex');
+      // timingSafeEqual explode se os tamanhos diferirem — trata isso como
+      // "não bate" em vez de deixar a exceção vazar como erro 500
+      const sigOk = expectedBuf.length === sigBuf.length && crypto.timingSafeEqual(expectedBuf, sigBuf);
+      if (!sigOk) return jsonResponse(res, 401, { ok: false, error: 'sig inválida' });
+
+      // escolhe o node: um específico (se pedido e ainda vivo/apto), ou
+      // qualquer node com camada de mídia ligada — mesma lista que
+      // /directory/nodes usaria, só filtrando por mediaCapable
+      pruneDirectory();
+      let node = null;
+      if (requestedNodeId) {
+        const candidate = pcDirectory.get(requestedNodeId);
+        if (candidate && candidate.mediaCapable && candidate.mediaSecret) node = candidate;
+      } else {
+        node = [...pcDirectory.values()].find((n) => n.mediaCapable && n.mediaSecret && n.mediaRtmpPort);
+      }
+      if (!node) return jsonResponse(res, 503, { ok: false, error: 'nenhum node de mídia disponível agora' });
+
+      const urlExp = Math.floor(Date.now() / 1000) + 3600; // validade da própria URL de push, não do token do PHP
+      const hash = crypto.createHash('md5').update(`${streamPath}-${urlExp}-${node.mediaSecret}`).digest('hex');
+      const pushUrl = `rtmp://${node.publicHost}:${node.mediaRtmpPort}${streamPath}?sign=${urlExp}-${hash}`;
+
+      return jsonResponse(res, 200, { ok: true, nodeId: node.nodeId, publicHost: node.publicHost, mediaRtmpPort: node.mediaRtmpPort, streamPath, pushUrl, expiresAt: urlExp });
+    }).catch((err) => jsonResponse(res, 400, { ok: false, error: err.message }));
+    return;
+  }
+
+  if (req.url === '/directory/nodes') {
+    // leitura pública e barata, mas ainda assim: sem limite, dá pra
+    // martelar geoOf()+sort() em loop e gerar CPU/alocação à toa, ou
+    // usar como vetor de scraping agressivo do diretório inteiro.
+    if (rateLimited(`directory-nodes:${clientIp(req)}`, 30, 60_000)) return rateLimitResponse(res);
+    pruneDirectory();
+    // geolocaliza quem tá perguntando (o celular/gateway chamando essa
+    // rota), pra poder ordenar os nós de PC do mais perto pro mais longe.
+    const requesterIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').toString().split(',')[0].trim();
+    const requesterGeo = geoOf(requesterIp);
+
+    let list = [...pcDirectory.values()];
+    if (requesterGeo) {
+      // ordena por distância real; nós sem geo conhecido (IP não achado na
+      // base local) vão pro fim da lista, mas continuam disponíveis —
+      // nunca excluímos um nó só por falta de geo, só despriorizamos
+      list.sort((a, b) => {
+        const da = a.geo ? haversineKm(requesterGeo.lat, requesterGeo.lon, a.geo.lat, a.geo.lon) : Infinity;
+        const db = b.geo ? haversineKm(requesterGeo.lat, requesterGeo.lon, b.geo.lat, b.geo.lon) : Infinity;
+        return da - db;
+      });
+    } else {
+      // não deu pra geolocalizar quem perguntou (ex.: IP local/privado em
+      // dev) — mantém o embaralhamento antigo pra distribuir carga
+      list.sort(() => Math.random() - 0.5);
+    }
+
+    const nodes = list.map(({ nodeId, publicHost, httpPort, turnPort, turnUser, turnSecret, turnCapable, mediaCapable, mediaRtmpPort, mediaHttpPort, lastSeen, geo }) => ({
+      nodeId, publicHost, httpPort, turnPort, turnUser, turnSecret, turnCapable,
+      mediaCapable, mediaRtmpPort, mediaHttpPort,
+      // cidade/país só como debug/exibição no painel — não é dado sensível,
+      // é a mesma info que qualquer geolocalização por IP pública já expõe
+      region: geo ? `${geo.city || '?'}, ${geo.country || '?'}` : null,
+      ageSec: Math.floor((Date.now() - lastSeen) / 1000),
+    }));
+    return jsonResponse(res, 200, { count: nodes.length, nodes });
+  }
+
+  if (req.url === '/nodes') {
+    if (!isAdmin(req)) return jsonResponse(res, 401, { ok: false, error: 'token de admin inválido ou ausente (header X-Admin-Token)' });
+    const now = Date.now();
+    const active = [...registry.keys()].filter((id) => !isInfraNodeId(id)).map((nodeId) => {
+      const since = connectedAt.get(nodeId);
+      return {
+        nodeId,
+        connectedAt: since || null,
+        uptimeSec: since ? Math.floor((now - new Date(since).getTime()) / 1000) : null
+      };
+    });
+    return jsonResponse(res, 200, { online: active.map((a) => a.nodeId), active });
+  }
+
+  if (req.url.startsWith('/nodes/history')) {
+    if (!isAdmin(req)) return jsonResponse(res, 401, { ok: false, error: 'token de admin inválido ou ausente (header X-Admin-Token)' });
+    const url = new URL(req.url, 'http://x');
+    const limit = Math.min(Number(url.searchParams.get('limit')) || 100, SESSIONS_HISTORY_MAX);
+    const history = closedSessions.slice(-limit).reverse();
+    return jsonResponse(res, 200, { history });
+  }
+
+  if (req.url === '/nodes/stats') {
+    if (!isAdmin(req)) return jsonResponse(res, 401, { ok: false, error: 'token de admin inválido ou ausente (header X-Admin-Token)' });
+    const now = Date.now();
+    const activeCount = registry.size;
+    const totalKnown = knownNodeIds.size;
+
+    // Tempo médio de sessão: combina sessões já encerradas (duração real)
+    // + sessões ativas agora (uptime até este instante) — dá uma média
+    // que reflete tanto quem já saiu quanto quem tá online faz tempo.
+    const activeUptimes = [...connectedAt.values()].map(
+      (since) => Math.floor((now - new Date(since).getTime()) / 1000)
+    );
+    const allDurations = [...closedSessions.map((s) => s.durationSec), ...activeUptimes];
+    const avgSessionSec = allDurations.length
+      ? Math.round(allDurations.reduce((a, b) => a + b, 0) / allDurations.length)
+      : 0;
+
+    return jsonResponse(res, 200, {
+      activeCount,
+      totalKnownNodes: totalKnown,
+      closedSessionsCount: closedSessions.length,
+      avgSessionSec
+    });
+  }
+
+  // (checagem de OPTIONS já feita no topo do handler — ver comentário lá)
+
+  // GET /points/leaderboard e GET /points/<pubkey> — ledger de pontos
+  // off-chain (sever/points.js), alimentado por uptime verificado (assinatura
+  // da wallet no 'register') + provas on-chain de armazenamento (proofPoints.js).
+  if (req.url.startsWith('/points/leaderboard')) {
+    return jsonResponse(res, 200, { leaderboard: points.getLeaderboard(20) });
+  }
+  if (req.url.startsWith('/points/')) {
+    const pubkey = decodeURIComponent(req.url.slice('/points/'.length));
+    return jsonResponse(res, 200, { pubkey, ...points.getEntry(pubkey) });
+  }
+
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('Signaling & Relay Server Online');
+});
+
+
+const wss = new WebSocket.Server({ server: httpServer });
+
+
+const registry = new Map();
+
+function send(ws, obj) {
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(obj));
+  }
+}
+
+wss.on('connection', (ws, req) => {
+  let selfNodeId = null;
+  let verifiedPubkey = null; // só preenchido se a assinatura da wallet bater
+  let pointsSessionStartedAt = null;
+  const connIp = clientIp(req);
+
+  ws.on('message', (raw) => {
+    let msg;
+    try {
+      msg = JSON.parse(raw.toString());
+    } catch (e) {
+      return;
+    }
+
+    switch (msg.type) {
+      case 'register': {
+        if (typeof msg.nodeId !== 'string' || !msg.nodeId) return;
+
+        // Infra (gateway/publisher) não tem wallet nem entra no ledger de
+        // pontos — continua se registrando sem assinatura, mas só se o
+        // nodeId realmente bater no padrão de infra (não dá pra fingir
+        // "publisher-x" só pra escapar da checagem, porque isInfraNodeId
+        // é decidido pelo próprio nodeId, e infra nunca ganha pontos nem
+        // acessa dado sensível de outro peer).
+        if (!isInfraNodeId(msg.nodeId)) {
+          // Antes: qualquer conexão WS conseguia se registrar com QUALQUER
+          // nodeId (inclusive um já usado por outro celular/peer real),
+          // sem provar nada — sequestrava a sessão do nó verdadeiro (roubava
+          // signal/relay endereçado a ele, derrubava o peer_joined dele,
+          // etc). Agora register exige a mesma assinatura Ed25519 do nodeId
+          // (pubkey+sig) que já era usada só pra pontos — e o nodeId fica
+          // "travado" na primeira wallet que provar posse dele.
+          const ownership = verifyAndBindOwnership(msg.nodeId, msg.pubkey, msg.sig);
+          if (!ownership.ok) {
+            send(ws, { type: 'error', reason: 'register_unauthorized', detail: ownership.error });
+            return;
+          }
+          verifiedPubkey = ownership.pubkey;
+        }
+
+        selfNodeId = msg.nodeId;
+        registry.set(selfNodeId, ws);
+        connectedAt.set(selfNodeId, new Date().toISOString());
+        knownNodeIds.add(selfNodeId);
+        scheduleSaveSessions();
+        console.log(`[signaling] registrado: ${selfNodeId}  (online agora: ${[...registry.keys()].join(', ')})`);
+
+        if (verifiedPubkey) {
+          pointsSessionStartedAt = Date.now();
+          points.onSessionStart(verifiedPubkey);
+          console.log(`[points] sessão verificada pra ${verifiedPubkey}`);
+        }
+
+        // Diz ao cliente recém-registrado quem já está online (sem infra —
+        // celular não precisa nem deveria tentar WebRTC com gateway/publisher)
+        const others = [...registry.keys()].filter((id) => id !== selfNodeId && !isInfraNodeId(id));
+        send(ws, { type: 'peers', nodeIds: others });
+
+        // Avisa os outros que este cliente entrou — só se for um peer de
+        // verdade. Infra entrando/saindo não deveria gerar peer_joined pra
+        // ninguém (é ruído puro, ninguém faz WebRTC com gateway-1).
+        if (!isInfraNodeId(selfNodeId)) {
+          for (const [id, sock] of registry) {
+            if (id !== selfNodeId && !isInfraNodeId(id)) {
+              send(sock, { type: 'peer_joined', nodeId: selfNodeId });
+            }
+          }
+        }
+        break;
+      }
+
+      case 'signal': {
+        if (!selfNodeId || typeof msg.to !== 'string' || !msg.payload) return;
+        // Limite por conexão+IP: sem isso um peer (ou alguém spoofando
+        // várias conexões) consegue floodar `signal` pra travar o peer
+        // alvo em handshake WebRTC infinito ou sobrecarregar o processo.
+        if (rateLimited(`signal:${selfNodeId}:${connIp}`, 60, 10_000)) {
+          send(ws, { type: 'error', reason: 'rate_limited', to: msg.to });
+          return;
+        }
+        const target = registry.get(msg.to);
+        if (!target) {
+          send(ws, { type: 'error', reason: 'peer_offline', to: msg.to });
+          return;
+        }
+        send(target, { type: 'signal', from: selfNodeId, payload: msg.payload });
+        break;
+      }
+
+
+      case 'relay': {
+        if (!selfNodeId || typeof msg.to !== 'string') return;
+        // relay carrega payloadBase64 (pode ser bem maior que um signal de
+        // WebRTC) e é reencaminhado pro peer alvo — sem limite, um peer
+        // (ou spoofed) consegue floodar o alvo com tráfego amplificado ou
+        // sobrecarregar o processo de repasse. Janela mais curta que
+        // `signal` porque cada mensagem aqui é potencialmente mais pesada.
+        if (rateLimited(`relay:${selfNodeId}:${connIp}`, 40, 10_000)) {
+          send(ws, { type: 'relay_error', reason: 'rate_limited', requestId: msg.requestId });
+          return;
+        }
+        const target = registry.get(msg.to);
+        if (!target) {
+          send(ws, { type: 'relay_error', reason: 'peer_offline', requestId: msg.requestId });
+          return;
+        }
+        send(target, {
+          type: 'relay',
+          from: selfNodeId,
+          requestId: msg.requestId,
+          header: msg.header,
+          payloadBase64: msg.payloadBase64
+        });
+        break;
+      }
+
+      case 'watch_live': {
+        // Item 9 (lado player): quem quer assistir um streamPath assina
+        // aqui e passa a receber 'live_location' sempre que esse stream
+        // aparecer/migrar de node, e 'live_offline' quando parar. Sem
+        // polling — é só push. Por IP (não por nodeId) porque o player
+        // pode nem ter passado por 'register'.
+        if (rateLimited(`watch-live:${connIp}`, 20, 10_000)) return;
+        const streamPath = String(msg.streamPath || '').trim();
+        if (!streamPath || !streamPath.startsWith('/')) return;
+        // teto por conexão: um player normal assiste 1 (ou poucos, se
+        // tiver múltiplos players na mesma página); sem isso um socket
+        // hostil poderia assinar milhares de streamPaths e inflar os
+        // Sets de liveWatchers pra sempre.
+        if ((ws._watching?.size || 0) >= 20) return;
+        if (!liveWatchers.has(streamPath)) liveWatchers.set(streamPath, new Set());
+        liveWatchers.get(streamPath).add(ws);
+        (ws._watching || (ws._watching = new Set())).add(streamPath);
+
+        // resposta imediata com o estado atual, pra não esperar o
+        // próximo heartbeat só pra saber se já tá ao vivo ou não.
+        const entry = liveStreamIndex.get(streamPath);
+        if (entry) {
+          send(ws, {
+            type: 'live_location', streamPath, nodeId: entry.nodeId,
+            publicHost: entry.publicHost, mediaHttpPort: entry.mediaHttpPort,
+            pullUrl: pullUrlFor(entry, streamPath), kbps: entry.kbps,
+          });
+        } else {
+          send(ws, { type: 'live_offline', streamPath });
+        }
+        break;
+      }
+
+      case 'unwatch_live': {
+        const streamPath = String(msg.streamPath || '').trim();
+        if (!streamPath) return;
+        liveWatchers.get(streamPath)?.delete(ws);
+        ws._watching?.delete(streamPath);
+        break;
+      }
+
+      case 'relay_response': {
+        if (typeof msg.to !== 'string') return;
+        const target = registry.get(msg.to);
+        if (target) {
+          send(target, {
+            type: 'relay_response',
+            from: selfNodeId,
+            requestId: msg.requestId,
+            header: msg.header,
+            payloadBase64: msg.payloadBase64
+          });
+        }
+        break;
+      }
+
+      default:
+        break;
+    }
+  });
+
+  ws.on('close', () => {
+    // player desconectou — some das listas de watchers de qualquer
+    // streamPath que ele tava acompanhando (senão vaza Set() com ws
+    // morto pra sempre, e notifyLiveWatchers tenta mandar em socket fechado)
+    if (ws._watching) {
+      for (const streamPath of ws._watching) {
+        liveWatchers.get(streamPath)?.delete(ws);
+      }
+    }
+    if (selfNodeId && registry.get(selfNodeId) === ws) {
+      registry.delete(selfNodeId);
+
+      // Fecha a sessão: calcula duração e joga no histórico persistido.
+      const since = connectedAt.get(selfNodeId);
+      connectedAt.delete(selfNodeId);
+      if (since) {
+        const durationSec = Math.max(0, Math.floor((Date.now() - new Date(since).getTime()) / 1000));
+        closedSessions.push({
+          nodeId: selfNodeId,
+          connectedAt: since,
+          disconnectedAt: new Date().toISOString(),
+          durationSec
+        });
+        if (closedSessions.length > SESSIONS_HISTORY_MAX) {
+          closedSessions = closedSessions.slice(-SESSIONS_HISTORY_MAX);
+        }
+        scheduleSaveSessions();
+      }
+
+      console.log(`[signaling] desconectado: ${selfNodeId}  (online agora: ${[...registry.keys()].join(', ') || '(ninguém)'})`);
+      if (!isInfraNodeId(selfNodeId)) {
+        for (const sock of registry.values()) {
+          send(sock, { type: 'peer_left', nodeId: selfNodeId });
+        }
+      }
+    }
+    if (verifiedPubkey && pointsSessionStartedAt) {
+      const entry = points.onSessionEnd(verifiedPubkey, pointsSessionStartedAt);
+      console.log(`[points] sessão encerrada pra ${verifiedPubkey} — total agora: ${entry.points} pts`);
+    }
+  });
+});
+
+httpServer.listen(PORT, () => {
+  console.log(`Relay server rodando na porta ${PORT} (ws://0.0.0.0:${PORT})`);
+  proofPoints.start();
+});

@@ -1,0 +1,22 @@
+{
+  "meusite.local": {
+    "pubkeyB58": "8JS6a6C9QnFt5sW2ksdFNYZtSrNhqwHHKGSXEoNV33rC",
+    "privateKeyDer": "MC4CAQAwBQYDK2VwBCIEIDBktqs1iZSb0W3kMcKlsZYaj0juApBy5WkZ6eAd4Utk",
+    "createdAt": 1786146032627
+  },
+  "relaysite.local": {
+    "pubkeyB58": "5eihVWu8HG2Pxp6aTJ7YsojPRDo6gfpzikHQvmdwmdJm",
+    "privateKeyDer": "MC4CAQAwBQYDK2VwBCIEIDlrhX6bHWaySGIEnZXt1244n7wlIsubW/kvu/b6ykel",
+    "createdAt": 1786146750820
+  },
+  "video.vagalun.shop": {
+    "pubkeyB58": "9WfpCsm7WEXovzGJsQ4q6Xrr8Z9qvgYbbH2RXyx2pdxS",
+    "privateKeyDer": "MC4CAQAwBQYDK2VwBCIEIHGbIhlTCMUmW+uo8ODbPdHzupt/UwhDJCGnCKFfMIZ0",
+    "createdAt": 1786409116523
+  },
+  "cole.vagalun.shop": {
+    "pubkeyB58": "Cuxy4zhFAxBRMEV6f4ChXRAzA7HWN6drFfM77vNFbK6",
+    "privateKeyDer": "MC4CAQAwBQYDK2VwBCIEIKoVG7G0KEJ6qaKimxmOAgVDPKIPZLqSeagpRzuwX1IP",
+    "createdAt": 1786410009083
+  }
+}

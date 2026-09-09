@@ -1,0 +1,837 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Vagalun Node</title>
+<style>
+  :root{
+    --bg:#f5f6f8;
+    --panel:#ffffff;
+    --line:#e6e8ec;
+    --ink:#1c2129;
+    --ink-soft:#5b6472;
+    --ink-faint:#98a1ac;
+    --sidebar:#14181f;
+    --sidebar-ink:#c7ccd6;
+    --sidebar-ink-dim:#6d7684;
+    --primary:#4f5eff;
+    --primary-soft:#eef0ff;
+    --amber:#e79a2c;
+    --amber-soft:#fdf1de;
+    --good:#2fa66d;
+    --good-soft:#e7f6ee;
+    --bad:#d75454;
+    --bad-soft:#fbe9e9;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: -apple-system, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;height:100%;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;
+    font-size:14px;
+  }
+  .app{
+    display:grid;
+    grid-template-columns:240px 1fr;
+    min-height:100vh;
+  }
+
+  /* ---------------- sidebar ---------------- */
+  .sidebar{
+    background:var(--sidebar);
+    color:var(--sidebar-ink);
+    padding:26px 18px;
+    display:flex;
+    flex-direction:column;
+  }
+  .brand{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:0 6px 28px;
+  }
+  .brand .mark{
+    width:30px;height:30px;border-radius:8px;
+    background:linear-gradient(155deg,var(--amber),#c97a1c);
+    flex:none;
+    position:relative;
+  }
+  .brand .mark::after{
+    content:"";
+    position:absolute; inset:9px;
+    border-radius:50%;
+    background:#fff6e6;
+    box-shadow:0 0 10px 2px #f2c46b99;
+  }
+  .brand-text{ line-height:1.25; }
+  .brand-text .name{ font-weight:700; font-size:15.5px; color:#fff; letter-spacing:0.01em; }
+  .brand-text .tag{ font-size:10.5px; letter-spacing:0.14em; color:var(--sidebar-ink-dim); }
+
+  .nav{ display:flex; flex-direction:column; gap:2px; }
+  .nav a{
+    display:flex; align-items:center; gap:11px;
+    padding:9px 12px;
+    border-radius:8px;
+    color:var(--sidebar-ink);
+    text-decoration:none;
+    font-size:13.5px;
+    cursor:pointer;
+  }
+  .nav a:hover{ background:#1d2230; color:#fff; }
+  .nav a.active{ background:#232a3b; color:#fff; }
+  .nav a svg{ flex:none; opacity:0.85; }
+
+  .sidebar-foot{
+    margin-top:auto;
+    padding:14px 12px 4px;
+    border-top:1px solid #232936;
+    font-size:11.5px;
+    color:var(--sidebar-ink-dim);
+    line-height:1.6;
+  }
+
+  .lang-switch{
+    display:flex;
+    gap:4px;
+    padding:3px;
+    background:#1d2230;
+    border-radius:8px;
+    margin-bottom:12px;
+  }
+  .lang-switch button{
+    flex:1;
+    background:none;
+    border:none;
+    color:var(--sidebar-ink-dim);
+    font-family:var(--sans);
+    font-size:12px;
+    font-weight:600;
+    padding:6px 0;
+    border-radius:6px;
+    cursor:pointer;
+  }
+  .lang-switch button.active{
+    background:#2b3244;
+    color:#fff;
+  }
+
+  /* ---------------- main ---------------- */
+  main{ padding:28px 34px 60px; max-width:1180px; }
+
+  .topbar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    margin-bottom:26px;
+    flex-wrap:wrap;
+    gap:14px;
+  }
+  .topbar-left{ display:flex; align-items:center; gap:12px; }
+  .dot{
+    width:9px;height:9px;border-radius:50%;
+    background:var(--ink-faint);
+    flex:none;
+  }
+  .dot.on{ background:var(--amber); box-shadow:0 0 0 4px var(--amber-soft); }
+  .dot.off{ background:var(--bad); box-shadow:0 0 0 4px var(--bad-soft); }
+  .status-title{ font-size:17px; font-weight:700; }
+  .status-sub{ font-size:13px; color:var(--ink-soft); margin-top:2px; }
+
+  .uptime-chip{
+    font-family:var(--mono);
+    font-size:12.5px;
+    color:var(--ink-soft);
+    background:var(--panel);
+    border:1px solid var(--line);
+    padding:7px 12px;
+    border-radius:8px;
+  }
+
+  .grid{
+    display:grid;
+    grid-template-columns:1.3fr 1.3fr 1fr;
+    gap:16px;
+    align-items:start;
+  }
+  @media (max-width:980px){ .grid{ grid-template-columns:1fr; } .card[style]{ grid-column:auto !important; } }
+
+  .card{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:18px 20px 20px;
+  }
+  .card-head{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    margin-bottom:14px;
+  }
+  .card-title{
+    display:flex; align-items:center; gap:8px;
+    font-size:12.5px; font-weight:700;
+    letter-spacing:0.03em;
+    color:var(--ink-soft);
+  }
+  .card-title svg{ opacity:0.7; }
+
+  .srow{
+    display:flex; align-items:center; gap:10px;
+    padding:9px 0;
+    border-bottom:1px solid #f0f1f4;
+    font-size:13.5px;
+  }
+  .srow:last-child{ border-bottom:none; }
+  .srow .name{ color:var(--ink); }
+  .srow .val{ margin-left:auto; color:var(--ink-soft); font-size:12.5px; }
+  .badge{
+    font-size:11px; font-weight:600;
+    padding:2px 8px; border-radius:20px;
+  }
+  .badge.ok{ background:var(--good-soft); color:var(--good); }
+  .badge.bad{ background:var(--bad-soft); color:var(--bad); }
+  .badge.mid{ background:var(--amber-soft); color:#a56b1a; }
+
+  .stat-pair{ display:flex; gap:26px; margin-bottom:2px; flex-wrap:wrap; }
+  .stat b{ display:block; font-family:var(--mono); font-size:21px; font-weight:600; }
+  .stat span{ font-size:12px; color:var(--ink-faint); }
+
+  table{ width:100%; border-collapse:collapse; font-size:13px; }
+  th{
+    text-align:left; font-weight:600; color:var(--ink-faint);
+    font-size:11px; letter-spacing:0.03em;
+    padding:0 0 9px; border-bottom:1px solid var(--line);
+  }
+  td{ padding:10px 0; border-bottom:1px solid #f0f1f4; color:var(--ink-soft); font-family:var(--mono); font-size:12.5px; }
+  tr:last-child td{ border-bottom:none; }
+  td.id{ color:var(--ink); font-weight:500; }
+  .empty-row{ color:var(--ink-faint); font-size:13px; padding:8px 0; }
+
+  .wallet-key{
+    font-family:var(--mono); font-size:12.5px;
+    background:#f7f8fa; border:1px solid var(--line);
+    border-radius:7px; padding:8px 11px;
+    display:flex; align-items:center; justify-content:space-between; gap:8px;
+  }
+  .wallet-key button{
+    background:none; border:none; color:var(--primary); font-size:11.5px;
+    cursor:pointer; font-family:var(--sans); font-weight:600;
+  }
+  .wallet-balance{ margin-top:12px; font-size:20px; font-weight:700; font-family:var(--mono); }
+  .wallet-balance small{ font-size:12px; color:var(--ink-faint); font-weight:500; font-family:var(--sans); }
+  .wallet-note{ margin-top:10px; font-size:11.5px; color:var(--ink-faint); line-height:1.5; }
+
+  .kv{ display:flex; justify-content:space-between; padding:7px 0; font-size:13px; border-bottom:1px solid #f0f1f4; }
+  .kv:last-child{ border-bottom:none; }
+  .kv .k{ color:var(--ink-soft); }
+  .kv .v{ font-family:var(--mono); font-size:12.5px; color:var(--ink); }
+
+  .btn{
+    width:100%;
+    margin-top:14px;
+    background:var(--primary-soft);
+    color:var(--primary);
+    border:1px solid #dfe2ff;
+    font-weight:600; font-size:13px;
+    padding:9px 0; border-radius:8px;
+    cursor:pointer;
+  }
+  .btn:hover{ background:#e2e5ff; }
+  .btn-note{ margin-top:8px; font-size:11.5px; color:var(--ink-faint); text-align:center; min-height:14px; }
+
+  .log-card{ margin-top:16px; }
+  .log-box{
+    max-height:220px; overflow-y:auto;
+    font-family:var(--mono); font-size:12px; line-height:1.75;
+    color:var(--ink-soft);
+  }
+  .log-box .t{ color:var(--ink-faint); }
+  .log-box .k{ color:var(--primary); }
+
+  footer.foot{
+    margin-top:22px;
+    font-size:11.5px;
+    color:var(--ink-faint);
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="mark"></div>
+      <div class="brand-text">
+        <div class="name">Vagalun</div>
+        <div class="tag">NODE</div>
+      </div>
+    </div>
+    <nav class="nav">
+      <a class="active" href="#top">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+        <span data-i18n="nav.dashboard">Dashboard</span>
+      </a>
+      <a href="#peers">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <span data-i18n="nav.peers">Peers</span>
+      </a>
+      <a href="#payout">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+        <span data-i18n="nav.payout">Payout</span>
+      </a>
+      <a href="#wallet">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="14" rx="2"/><path d="M2 10h20"/><path d="M17 15h.01"/></svg>
+        <span data-i18n="nav.wallet">Wallet</span>
+      </a>
+      <a href="#logs">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>
+        <span data-i18n="nav.logs">Activity log</span>
+      </a>
+    </nav>
+    <div style="margin-top:auto;">
+      <div class="lang-switch" id="langSwitch">
+        <button data-lang="en" class="active">EN</button>
+        <button data-lang="hi">हिं</button>
+      </div>
+      <div class="sidebar-foot" id="footNode" style="margin-top:0;border-top:1px solid #232936;padding-top:12px;">connecting…</div>
+    </div>
+  </aside>
+
+  <main>
+    <div class="topbar" id="top">
+      <div class="topbar-left">
+        <span id="mainDot" class="dot"></span>
+        <div>
+          <div class="status-title" id="statusTitle" data-i18n="status.connecting">Connecting…</div>
+          <div class="status-sub" id="statusSub"></div>
+        </div>
+      </div>
+      <div class="uptime-chip" id="uptimeChip">–</div>
+    </div>
+
+    <div class="grid">
+
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 2v10l7-3.5"/></svg>
+            <span data-i18n="card.nodeStatus">NODE STATUS</span>
+          </div>
+        </div>
+        <div id="serviceRows"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 11a9 9 0 0 1 14-7"/><path d="M20 13a9 9 0 0 1-14 7"/><circle cx="12" cy="12" r="2.5"/></svg>
+            <span data-i18n="card.network">NETWORK</span>
+          </div>
+        </div>
+        <div class="stat-pair">
+          <div class="stat"><b id="statBytes">–</b><span data-i18n="stat.relayed">relayed, this run</span></div>
+          <div class="stat"><b id="statSessions">–</b><span data-i18n="stat.sessions">relay sessions</span></div>
+          <div class="stat"><b id="statPeers">–</b><span data-i18n="stat.peersNow">peers now</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/></svg>
+            <span data-i18n="card.configuration">CONFIGURATION</span>
+          </div>
+        </div>
+        <div class="kv"><span class="k" data-i18n="cfg.turnPort">TURN port</span><span class="v" id="cfgTurnPort">–</span></div>
+        <div class="kv"><span class="k" data-i18n="cfg.signalingPort">Signaling port</span><span class="v" id="cfgHttpPort">–</span></div>
+        <div class="kv"><span class="k" data-i18n="cfg.turnUser">TURN user</span><span class="v" id="cfgTurnUser">–</span></div>
+        <div class="kv"><span class="k" data-i18n="cfg.directory">Directory</span><span class="v" id="cfgDirectory">–</span></div>
+        <button class="btn" id="rotateBtn" data-i18n="cfg.rotateBtn">Rotate TURN secret</button>
+        <div class="btn-note" id="rotateNote"></div>
+      </div>
+
+      <div class="card" id="peers" style="grid-column:span 2;">
+        <div class="card-head">
+          <div class="card-title">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            <span data-i18n="card.peers">CONNECTED PEERS</span>
+          </div>
+        </div>
+        <div id="peersWrap"></div>
+      </div>
+
+      <div class="card" id="wallet">
+        <div class="card-head">
+          <div class="card-title">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="14" rx="2"/><path d="M2 10h20"/><path d="M17 15h.01"/></svg>
+            <span data-i18n="card.wallet">NODE WALLET</span>
+          </div>
+        </div>
+        <div class="wallet-key">
+          <span id="walletPub">–</span>
+          <button id="copyPub" data-i18n="wallet.copy">copy</button>
+        </div>
+        <div class="wallet-balance" id="walletBalance">– <small data-i18n="wallet.unit">SOL · devnet</small></div>
+        <div class="wallet-note" data-i18n="wallet.note">This identity signs the node's own status reports — it isn't your personal wallet. The devnet balance only covers gas for those signed reports.</div>
+      </div>
+
+      <div class="card" id="payout">
+        <div class="card-head">
+          <div class="card-title">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+            <span data-i18n="card.payout">PAYOUT WALLET</span>
+          </div>
+        </div>
+        <div class="wallet-note" data-i18n="payout.note">Your personal wallet (Phantom) — this is where this node's epoch payouts get sent. The node's own signing wallet above never holds real funds.</div>
+
+        <div class="kv"><span class="k" data-i18n="payout.linked">Linked wallet</span><span class="v" id="payoutOwner">–</span></div>
+        <button class="btn" id="connectPhantomBtn" data-i18n="payout.connect">Connect Phantom</button>
+        <div class="wallet-note" id="payoutLinkStatus"></div>
+
+        <div class="kv" style="margin-top:10px;"><span class="k" data-i18n="payout.epoch">Directory</span><span class="v" id="payoutDirectory">–</span></div>
+        <button class="btn" id="claimBtn" disabled data-i18n="payout.claim">Check &amp; claim epoch payout</button>
+        <div class="wallet-note" id="payoutClaimStatus"></div>
+      </div>
+
+    </div>
+
+    <div class="card log-card" id="logs">
+      <div class="card-head">
+        <div class="card-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>
+          <span data-i18n="card.log">ACTIVITY LOG</span>
+        </div>
+      </div>
+      <div class="log-box" id="logBox"></div>
+    </div>
+
+    <footer class="foot" id="pageFoot"></footer>
+  </main>
+</div>
+
+<script src="https://unpkg.com/@solana/web3.js@1.95.3/lib/index.iife.min.js"></script>
+<script>
+(function(){
+  const $ = (id) => document.getElementById(id);
+
+  // ---------------- i18n ----------------
+  const I18N = {
+    en: {
+      'nav.dashboard': 'Dashboard', 'nav.peers': 'Peers', 'nav.wallet': 'Wallet', 'nav.logs': 'Activity log',
+      'status.connecting': 'Connecting…',
+      'status.online.title': 'Node online', 'status.online.sub': 'Relaying connections for the network',
+      'status.starting.title': 'Node starting', 'status.starting.sub': 'Waiting for signaling and relay to come online',
+      'card.nodeStatus': 'NODE STATUS', 'card.network': 'NETWORK', 'card.configuration': 'CONFIGURATION',
+      'card.peers': 'CONNECTED PEERS', 'card.wallet': 'NODE WALLET', 'card.log': 'ACTIVITY LOG',
+      'stat.relayed': 'relayed, this run', 'stat.sessions': 'relay sessions', 'stat.peersNow': 'peers now',
+      'cfg.turnPort': 'TURN port', 'cfg.signalingPort': 'Signaling port', 'cfg.turnUser': 'TURN user',
+      'cfg.directory': 'Directory', 'cfg.rotateBtn': 'Rotate TURN secret',
+      'cfg.rotating': 'rotating…', 'cfg.rotateOk': 'done — peers get a new credential on reconnect',
+      'cfg.rotateFail': 'failed', 'cfg.rotateAuth': 'admin token required',
+      'cfg.notConfigured': 'not configured',
+      'peers.empty': 'No peers connected right now.',
+      'peers.th.id': 'Node ID', 'peers.th.address': 'Address', 'peers.th.connected': 'Connected',
+      'wallet.copy': 'copy', 'wallet.copied': 'copied', 'wallet.unit': 'SOL · devnet',
+      'wallet.note': "This identity signs the node's own status reports — it isn't your personal wallet. The devnet balance only covers gas for those signed reports.",
+      'wallet.unavailable': 'balance unavailable',
+      'nav.payout': 'Payout',
+      'card.payout': 'PAYOUT WALLET',
+      'payout.note': "Your personal wallet (Phantom) — this is where this node's epoch payouts get sent. The node's own signing wallet above never holds real funds.",
+      'payout.linked': 'Linked wallet',
+      'payout.notLinked': 'not linked yet',
+      'payout.connect': 'Connect Phantom',
+      'payout.change': 'Connect a different wallet',
+      'payout.epoch': 'Directory',
+      'payout.claim': 'Check & claim epoch payout',
+      'payout.checking': 'checking…',
+      'payout.noPhantom': 'Phantom not found — install the extension and reload this page.',
+      'payout.linkFail': 'Failed to link: {msg}',
+      'payout.linkedOk': 'Linked: {pub}',
+      'payout.noDirectory': 'no backend configured for this node',
+      'payout.noPayout': 'Nothing to claim for this wallet this epoch (below the minimum payout, or no contribution in the period) — normal, try again next week.',
+      'payout.claimFail': 'Failed: {msg}',
+      'payout.claimSent': 'Sent! signature: {sig} — amount: {amount} SOL',
+      'log.empty': 'No activity yet.',
+      'footer.signaling': 'Signaling on localhost:{http} · STUN/TURN on port {turn}',
+      'svc.signaling': 'Signaling', 'svc.turn': 'STUN / TURN relay', 'svc.reachable': 'Reachable from outside',
+      'svc.directory': 'Directory',
+      'svc.status.starting': 'starting', 'svc.status.online': 'online', 'svc.status.error': 'error',
+      'svc.status.disabled': 'disabled', 'svc.status.checking': 'checking',
+      'svc.status.upnp-ok': 'port opened', 'svc.status.upnp-failed': 'port not opened automatically',
+      'svc.status.reachable': 'reachable', 'svc.status.unreachable': 'unreachable',
+      'agoSec': '{n}s ago', 'agoMin': '{n}m ago', 'agoHour': '{n}h ago',
+      'uptime': '{s} uptime',
+    },
+    hi: {
+      'nav.dashboard': 'डैशबोर्ड', 'nav.peers': 'पीयर्स', 'nav.wallet': 'वॉलेट', 'nav.logs': 'गतिविधि लॉग',
+      'status.connecting': 'कनेक्ट हो रहा है…',
+      'status.online.title': 'नोड ऑनलाइन है', 'status.online.sub': 'नेटवर्क के लिए कनेक्शन रिले कर रहा है',
+      'status.starting.title': 'नोड शुरू हो रहा है', 'status.starting.sub': 'सिग्नलिंग और रिले के ऑनलाइन होने की प्रतीक्षा है',
+      'card.nodeStatus': 'नोड स्थिति', 'card.network': 'नेटवर्क', 'card.configuration': 'कॉन्फ़िगरेशन',
+      'card.peers': 'जुड़े हुए पीयर्स', 'card.wallet': 'नोड वॉलेट', 'card.log': 'गतिविधि लॉग',
+      'stat.relayed': 'इस सत्र में रिले हुआ', 'stat.sessions': 'रिले सत्र', 'stat.peersNow': 'अभी पीयर्स',
+      'cfg.turnPort': 'TURN पोर्ट', 'cfg.signalingPort': 'सिग्नलिंग पोर्ट', 'cfg.turnUser': 'TURN यूज़र',
+      'cfg.directory': 'डायरेक्टरी', 'cfg.rotateBtn': 'TURN सीक्रेट बदलें',
+      'cfg.rotating': 'बदला जा रहा है…', 'cfg.rotateOk': 'हो गया — दोबारा जुड़ने पर पीयर्स को नया क्रेडेंशियल मिलेगा',
+      'cfg.rotateFail': 'असफल रहा', 'cfg.rotateAuth': 'एडमिन टोकन आवश्यक है',
+      'cfg.notConfigured': 'कॉन्फ़िगर नहीं किया गया',
+      'peers.empty': 'अभी कोई पीयर जुड़ा नहीं है।',
+      'peers.th.id': 'नोड ID', 'peers.th.address': 'पता', 'peers.th.connected': 'जुड़ा हुआ',
+      'wallet.copy': 'कॉपी करें', 'wallet.copied': 'कॉपी हो गया', 'wallet.unit': 'SOL · devnet',
+      'wallet.note': 'यह पहचान केवल नोड की अपनी स्टेटस रिपोर्ट्स पर हस्ताक्षर करती है — यह आपका निजी वॉलेट नहीं है। devnet बैलेंस केवल उन हस्ताक्षरित रिपोर्ट्स के गैस खर्च के लिए है।',
+      'wallet.unavailable': 'बैलेंस उपलब्ध नहीं है',
+      'log.empty': 'अभी तक कोई गतिविधि नहीं।',
+      'footer.signaling': 'सिग्नलिंग localhost:{http} पर · STUN/TURN पोर्ट {turn} पर',
+      'svc.signaling': 'सिग्नलिंग', 'svc.turn': 'STUN / TURN रिले', 'svc.reachable': 'बाहर से पहुँच योग्य',
+      'svc.directory': 'डायरेक्टरी',
+      'svc.status.starting': 'शुरू हो रहा है', 'svc.status.online': 'ऑनलाइन', 'svc.status.error': 'त्रुटि',
+      'svc.status.disabled': 'बंद है', 'svc.status.checking': 'जाँच हो रही है',
+      'svc.status.upnp-ok': 'पोर्ट खुल गया', 'svc.status.upnp-failed': 'पोर्ट अपने आप नहीं खुला',
+      'svc.status.reachable': 'पहुँच योग्य', 'svc.status.unreachable': 'पहुँच योग्य नहीं',
+      'agoSec': '{n} सेकंड पहले', 'agoMin': '{n} मिनट पहले', 'agoHour': '{n} घंटे पहले',
+      'uptime': '{s} अपटाइम',
+    },
+  };
+
+  let LANG = localStorage.getItem('vagalun-lang') || 'en';
+  if (!I18N[LANG]) LANG = 'en';
+
+  function t(key, vars){
+    let s = (I18N[LANG] && I18N[LANG][key]) || I18N.en[key] || key;
+    if (vars) for (const k in vars) s = s.replace('{' + k + '}', vars[k]);
+    return s;
+  }
+
+  function applyStaticI18n(){
+    document.querySelectorAll('[data-i18n]').forEach((el) => {
+      el.textContent = t(el.getAttribute('data-i18n'));
+    });
+    document.querySelectorAll('#langSwitch button').forEach((b) => {
+      b.classList.toggle('active', b.getAttribute('data-lang') === LANG);
+    });
+    document.documentElement.lang = LANG;
+  }
+
+  function setLang(lang){
+    if (!I18N[lang]) return;
+    LANG = lang;
+    localStorage.setItem('vagalun-lang', lang);
+    applyStaticI18n();
+    if (window.__lastSnapshot) render(window.__lastSnapshot);
+  }
+
+  document.getElementById('langSwitch').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-lang]');
+    if (btn) setLang(btn.getAttribute('data-lang'));
+  });
+
+  applyStaticI18n();
+
+  const STATUS_LABEL = {
+    starting: 'starting', online: 'online', error: 'error',
+    disabled: 'disabled', checking: 'checking',
+    'upnp-ok': 'port opened', 'upnp-failed': 'port not opened automatically',
+    reachable: 'reachable', unreachable: 'unreachable',
+  };
+
+  function badgeClass(statusKey){
+    if (['online','upnp-ok','reachable'].includes(statusKey)) return 'ok';
+    if (['error','unreachable'].includes(statusKey)) return 'bad';
+    return 'mid';
+  }
+
+  function fmtBytes(n){
+    if (!n || n <= 0) return '0 B';
+    const u = ['B','KB','MB','GB','TB'];
+    let i = 0, v = n;
+    while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+    return (v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2)) + ' ' + u[i];
+  }
+
+  function fmtUptime(sec){
+    if (sec == null) return '–';
+    sec = Math.max(0, Math.floor(sec));
+    const d = Math.floor(sec/86400); sec %= 86400;
+    const h = Math.floor(sec/3600); sec %= 3600;
+    const m = Math.floor(sec/60);
+    const parts = [];
+    if (d) parts.push(d + 'd');
+    if (h || d) parts.push(h + 'h');
+    parts.push(m + 'm');
+    return t('uptime', { s: parts.join(' ') });
+  }
+
+  function fmtAgo(iso){
+    if (!iso) return '–';
+    const sec = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime())/1000));
+    if (sec < 60) return t('agoSec', { n: sec });
+    if (sec < 3600) return t('agoMin', { n: Math.floor(sec/60) });
+    return t('agoHour', { n: Math.floor(sec/3600) });
+  }
+
+  function truncKey(k){
+    if (!k) return '–';
+    return k.length > 18 ? k.slice(0,7) + '…' + k.slice(-7) : k;
+  }
+
+  function srow(name, statusKey, extra){
+    const label = t('svc.status.' + statusKey) || statusKey || 'unknown';
+    return `<div class="srow">
+      <span class="name">${name}</span>
+      <span class="val">${extra || ''}</span>
+      <span class="badge ${badgeClass(statusKey)}">${label}</span>
+    </div>`;
+  }
+
+  function render(s){
+    window.__lastSnapshot = s;
+    document.title = s.nodeName || 'Vagalun Node';
+
+    const on = s.signalingStatus === 'online' && s.turnStatus === 'online';
+    $('mainDot').className = 'dot ' + (on ? 'on' : 'off');
+    $('statusTitle').textContent = t(on ? 'status.online.title' : 'status.starting.title');
+    $('statusSub').textContent = t(on ? 'status.online.sub' : 'status.starting.sub');
+    $('uptimeChip').textContent = fmtUptime(s.uptimeSec);
+    $('footNode').textContent = (s.nodeName || 'node') + (s.uptimeSec != null ? ' · ' + fmtUptime(s.uptimeSec) : '');
+
+    $('statBytes').textContent = s.bytesRelayed != null ? fmtBytes(s.bytesRelayed) : '–';
+    $('statSessions').textContent = s.turnSessions != null ? s.turnSessions : '–';
+    $('statPeers').textContent = s.peerCount != null ? s.peerCount : '–';
+
+    const rows = [];
+    rows.push(srow(t('svc.signaling'), s.signalingStatus, s.httpPort ? 'port ' + s.httpPort : ''));
+    rows.push(srow(t('svc.turn'), s.turnStatus, s.turnPort ? 'port ' + s.turnPort : ''));
+    rows.push(srow(t('svc.reachable'), s.turnCapable ? 'reachable' : (['checking','starting'].includes(s.natStatus) ? 'checking' : 'unreachable')));
+    if (s.directoryUrl) {
+      rows.push(srow(t('svc.directory'), s.directoryStatus, s.directoryUrl.replace(/^https?:\/\//,'')));
+    } else {
+      rows.push(srow(t('svc.directory'), 'disabled', t('cfg.notConfigured')));
+    }
+    $('serviceRows').innerHTML = rows.join('');
+
+    $('cfgTurnPort').textContent = s.turnPort || '–';
+    $('cfgHttpPort').textContent = s.httpPort || '–';
+    $('cfgTurnUser').textContent = s.turnUser || '–';
+    $('cfgDirectory').textContent = s.directoryUrl ? s.directoryUrl.replace(/^https?:\/\//,'') : t('cfg.notConfigured');
+
+    const peers = s.peers || [];
+    if (!peers.length) {
+      $('peersWrap').innerHTML = '<div class="empty-row">' + t('peers.empty') + '</div>';
+    } else {
+      $('peersWrap').innerHTML =
+        '<table><thead><tr><th>' + t('peers.th.id') + '</th><th>' + t('peers.th.address') + '</th><th>' + t('peers.th.connected') + '</th></tr></thead><tbody>' +
+        peers.map(p => `<tr><td class="id">${p.nodeId}</td><td>${p.ip || '–'}</td><td>${fmtAgo(p.connectedAt)}</td></tr>`).join('') +
+        '</tbody></table>';
+    }
+
+    if (s.walletPubkey) {
+      $('walletPub').textContent = truncKey(s.walletPubkey);
+      $('walletPub').title = s.walletPubkey;
+      window.__pubkey = s.walletPubkey;
+    }
+
+    renderPayout(s);
+
+    if (Array.isArray(s.log)) {
+      $('logBox').innerHTML = s.log.map(l =>
+        `<div><span class="t">${new Date(l.t).toLocaleTimeString()}</span> <span class="k">[${l.kind}]</span> ${l.msg}</div>`
+      ).join('') || '<div class="empty-row">' + t('log.empty') + '</div>';
+    }
+
+    $('pageFoot').textContent = t('footer.signaling', { http: s.httpPort || '–', turn: s.turnPort || '–' });
+  }
+
+  async function refreshWallet(){
+    try {
+      const r = await fetch('/api/wallet/balance');
+      const j = await r.json();
+      $('walletBalance').innerHTML = j.sol != null
+        ? j.sol.toFixed(4) + ' <small>' + t('wallet.unit') + '</small>'
+        : '– <small>' + t('wallet.unavailable') + '</small>';
+    } catch (e) {
+      $('walletBalance').innerHTML = '– <small>' + t('wallet.unavailable') + '</small>';
+    }
+  }
+
+  $('copyPub').addEventListener('click', () => {
+    if (window.__pubkey) {
+      navigator.clipboard.writeText(window.__pubkey).catch(()=>{});
+      $('copyPub').textContent = t('wallet.copied');
+      setTimeout(() => { $('copyPub').textContent = t('wallet.copy'); }, 1200);
+    }
+  });
+
+  $('rotateBtn').addEventListener('click', async () => {
+    $('rotateNote').textContent = t('cfg.rotating');
+    try {
+      const r = await fetch('/api/rotate-secret', { method: 'POST' });
+      if (r.status === 401) { $('rotateNote').textContent = t('cfg.rotateAuth'); return; }
+      const j = await r.json();
+      $('rotateNote').textContent = j.ok ? t('cfg.rotateOk') : t('cfg.rotateFail');
+    } catch (e) {
+      $('rotateNote').textContent = t('cfg.rotateFail');
+    }
+    setTimeout(() => { $('rotateNote').textContent = ''; }, 4000);
+  });
+
+  // ---------------- payout wallet (Phantom + claim_epoch) ----------------
+  // Espelha o que o programa Anchor (storage_market) e o backend
+  // (Epochapi.js / merkle.js) esperam. programId e directoryUrl NUNCA são
+  // hardcoded aqui — vêm sempre do snapshot (/api/status), que é a mesma
+  // fonte que o resto do painel usa, então não tem como ficar dessincronizado.
+  function truncKeyLong(k){ return k ? (k.length > 20 ? k.slice(0,8) + '…' + k.slice(-8) : k) : '–'; }
+
+  function u64LeBytes(value){
+    const buf = new Uint8Array(8);
+    let v = BigInt(value);
+    for (let i = 0; i < 8; i++) { buf[i] = Number(v & 0xFFn); v >>= 8n; }
+    return buf;
+  }
+  async function instructionDiscriminator(name){
+    const enc = new TextEncoder().encode('global:' + name);
+    const digest = await crypto.subtle.digest('SHA-256', enc);
+    return new Uint8Array(digest).slice(0, 8);
+  }
+  function concatBytes(...arrays){
+    const total = arrays.reduce((sum, a) => sum + a.length, 0);
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (const a of arrays) { out.set(a, offset); offset += a.length; }
+    return out;
+  }
+  function hexToBytes(hex){
+    const out = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);
+    return out;
+  }
+
+  function renderPayout(s){
+    $('payoutOwner').textContent = s.ownerPubkey ? truncKeyLong(s.ownerPubkey) : t('payout.notLinked');
+    if (s.ownerPubkey) $('payoutOwner').title = s.ownerPubkey;
+    $('connectPhantomBtn').textContent = t(s.ownerPubkey ? 'payout.change' : 'payout.connect');
+    $('payoutDirectory').textContent = s.directoryUrl ? s.directoryUrl.replace(/^https?:\/\//,'') : t('payout.noDirectory');
+    $('claimBtn').disabled = !s.ownerPubkey || !s.directoryUrl;
+    window.__programId = s.programId || window.__programId;
+    window.__directoryUrl = s.directoryUrl || null;
+  }
+
+  $('connectPhantomBtn').addEventListener('click', async () => {
+    const statusEl = $('payoutLinkStatus');
+    statusEl.textContent = ''; statusEl.className = 'wallet-note';
+    if (!window.solana || !window.solana.isPhantom) {
+      statusEl.textContent = t('payout.noPhantom');
+      statusEl.style.color = 'var(--bad)';
+      return;
+    }
+    try {
+      const resp = await window.solana.connect();
+      const ownerPubkey = resp.publicKey.toBase58();
+      const linkRes = await fetch('/api/owner', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ownerPubkey }),
+      });
+      if (!linkRes.ok) throw new Error('HTTP ' + linkRes.status);
+      statusEl.textContent = t('payout.linkedOk', { pub: truncKeyLong(ownerPubkey) });
+      statusEl.style.color = 'var(--good)';
+      if (window.__lastSnapshot) { window.__lastSnapshot.ownerPubkey = ownerPubkey; renderPayout(window.__lastSnapshot); }
+    } catch (err) {
+      statusEl.textContent = t('payout.linkFail', { msg: err.message });
+      statusEl.style.color = 'var(--bad)';
+    }
+  });
+
+  $('claimBtn').addEventListener('click', async () => {
+    const statusEl = $('payoutClaimStatus');
+    statusEl.className = 'wallet-note';
+    statusEl.textContent = t('payout.checking');
+    try {
+      const { PublicKey, Transaction, TransactionInstruction, Connection, SystemProgram } = solanaWeb3;
+      const directoryUrl = window.__directoryUrl;
+      const programId = new PublicKey(window.__programId);
+      if (!directoryUrl) throw new Error(t('payout.noDirectory'));
+
+      if (!window.solana || !window.solana.isConnected) await window.solana.connect();
+      const claimant = window.solana.publicKey;
+
+      const currentRes = await fetch(directoryUrl + '/epoch/current');
+      const current = await currentRes.json();
+      if (!current.epochId) throw new Error('no current epoch from backend');
+      const epochId = current.epochId;
+
+      const proofRes = await fetch(directoryUrl + '/epoch/' + epochId + '/proof/' + claimant.toBase58());
+      if (proofRes.status === 404) {
+        statusEl.textContent = t('payout.noPayout');
+        statusEl.style.color = 'var(--ink-faint)';
+        return;
+      }
+      if (!proofRes.ok) throw new Error('HTTP ' + proofRes.status);
+      const proofData = await proofRes.json();
+
+      const rpcUrl = window.__lastSnapshot && window.__lastSnapshot.solanaCluster === 'mainnet-beta'
+        ? 'https://api.mainnet-beta.solana.com' : 'https://api.devnet.solana.com';
+      const connection = new Connection(rpcUrl, 'confirmed');
+
+      const [epochRootPda] = await PublicKey.findProgramAddress(
+        [new TextEncoder().encode('epoch_root'), u64LeBytes(epochId)], programId);
+      const [claimReceiptPda] = await PublicKey.findProgramAddress(
+        [new TextEncoder().encode('claim'), u64LeBytes(epochId), claimant.toBytes()], programId);
+
+      const discriminator = await instructionDiscriminator('claim_epoch');
+      const proofBytes = proofData.proof.map(hexToBytes);
+      const proofLenLe = new Uint8Array(4);
+      new DataView(proofLenLe.buffer).setUint32(0, proofBytes.length, true);
+      const data = concatBytes(discriminator, u64LeBytes(epochId), u64LeBytes(proofData.amountLamports), proofLenLe, ...proofBytes);
+
+      const ix = new TransactionInstruction({
+        programId,
+        keys: [
+          { pubkey: epochRootPda, isSigner: false, isWritable: true },
+          { pubkey: claimReceiptPda, isSigner: false, isWritable: true },
+          { pubkey: claimant, isSigner: true, isWritable: true },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ],
+        data: Buffer.from(data),
+      });
+      const tx = new Transaction().add(ix);
+      tx.feePayer = claimant;
+      tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+
+      const { signature } = await window.solana.signAndSendTransaction(tx);
+      statusEl.textContent = t('payout.claimSent', { sig: signature, amount: (proofData.amountLamports / 1e9).toFixed(6) });
+      statusEl.style.color = 'var(--good)';
+    } catch (err) {
+      statusEl.textContent = t('payout.claimFail', { msg: err.message });
+      statusEl.style.color = 'var(--bad)';
+    }
+  });
+
+  function connect(){
+    try {
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      const ws = new WebSocket(proto + '://' + location.host + '/ws?dash=1');
+      ws.onmessage = (ev) => { try { render(JSON.parse(ev.data)); } catch (e) {} };
+      ws.onclose = () => setTimeout(connect, 2000);
+      ws.onerror = () => ws.close();
+    } catch (e) {
+      setTimeout(poll, 2000);
+    }
+  }
+  async function poll(){
+    try { const r = await fetch('/api/status'); render(await r.json()); } catch (e) {}
+    setTimeout(poll, 4000);
+  }
+
+  connect();
+  poll();
+  refreshWallet();
+  setInterval(refreshWallet, 30000);
+})();
+</script>
+</body>
+</html>

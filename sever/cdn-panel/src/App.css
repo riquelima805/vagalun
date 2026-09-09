@@ -1,0 +1,19 @@
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+}
+.app-main-col {
+  flex: 1;
+  margin-left: var(--sidebar-width);
+  min-width: 0;
+}
+.app-content {
+  min-height: calc(100vh - var(--topbar-height));
+}
+
+@media (max-width: 900px) {
+  .app-main-col { margin-left: 0; }
+}
+
+.spin { animation: vagalun-spin 1s linear infinite; }
+@keyframes vagalun-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }

@@ -1,0 +1,22 @@
+[2026-09-09T00:53:08.388Z] erro não tratado: Error [ERR_SOCKET_DGRAM_NOT_RUNNING]: Not running
+    at healthCheck (node:dgram:962:11)
+    at Socket.close (node:dgram:787:3)
+    at C:\Users\agis\Downloads\vagalun-com-relay-de-live\vagalun\node pc app\node_modules\node-turn\lib\network.js:69:12
+    at Array.forEach (<anonymous>)
+    at network.stop (C:\Users\agis\Downloads\vagalun-com-relay-de-live\vagalun\node pc app\node_modules\node-turn\lib\network.js:68:16)
+    at server.stop (C:\Users\agis\Downloads\vagalun-com-relay-de-live\vagalun\node pc app\node_modules\node-turn\lib\server.js:147:16)
+    at Server.handleHttp (C:\Users\agis\Downloads\vagalun-com-relay-de-live\vagalun\node pc app\index.js:764:16)
+    at Server.emit (node:events:518:28)
+    at parserOnIncoming (node:_http_server:1153:12)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:117:17)
+[2026-09-09T01:12:56.650Z] erro não tratado: Error [ERR_SOCKET_DGRAM_NOT_RUNNING]: Not running
+    at healthCheck (node:dgram:962:11)
+    at Socket.close (node:dgram:787:3)
+    at C:\Users\agis\Downloads\vagalun-com-relay-de-live\vagalun\node pc app\node_modules\node-turn\lib\network.js:69:12
+    at Array.forEach (<anonymous>)
+    at network.stop (C:\Users\agis\Downloads\vagalun-com-relay-de-live\vagalun\node pc app\node_modules\node-turn\lib\network.js:68:16)
+    at server.stop (C:\Users\agis\Downloads\vagalun-com-relay-de-live\vagalun\node pc app\node_modules\node-turn\lib\server.js:147:16)
+    at Server.handleHttp (C:\Users\agis\Downloads\vagalun-com-relay-de-live\vagalun\node pc app\index.js:764:16)
+    at Server.emit (node:events:518:28)
+    at parserOnIncoming (node:_http_server:1153:12)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:117:17)

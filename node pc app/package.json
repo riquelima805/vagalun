@@ -1,0 +1,39 @@
+{
+  "name": "vagalun-pc-node",
+  "version": "1.0.0",
+  "description": "No de PC do Vagalun: signaling + STUN/TURN + painel visual, tudo num so executavel.",
+  "main": "index.js",
+  "bin": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "postinstall": "node scripts/fix-uuid.js",
+    "build:win": "pkg . --targets node18-win-x64 --output dist/vagalun-pc-node.exe",
+    "build:linux": "pkg . --targets node18-linux-x64 --output dist/vagalun-pc-node",
+    "build:mac": "pkg . --targets node18-macos-x64 --output dist/vagalun-pc-node-mac"
+  },
+  "pkg": {
+    "assets": [
+      "public/**/*",
+      "bin/**/*",
+      "node_modules/@achingbrain/nat-port-mapper/**/*",
+      "node_modules/@achingbrain/ssdp/**/*",
+      "node_modules/node-media-server/**/*"
+    ]
+  },
+  "dependencies": {
+    "@achingbrain/nat-port-mapper": "^4.0.5",
+    "node-media-server": "^4.3.2",
+    "node-turn": "^0.0.6",
+    "ws": "^8.21.3",
+    "tweetnacl": "^1.0.3",
+    "bs58": "^5.0.0",
+    "uuid": "^8.3.2",
+    "@solana/web3.js": "^1.10.0"
+  },
+  "overrides": {
+    "uuid": "^8.3.2"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
+  }
+}

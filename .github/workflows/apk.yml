@@ -1,0 +1,41 @@
+name: Gerar APK
+
+on:
+  workflow_dispatch: # Permite rodar manualmente na aba Actions
+
+permissions:
+  contents: write # Permissão para criar a Release e anexar o APK
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Baixar o código do repositório
+      uses: actions/checkout@v4
+
+    - name: Configurar o Java (JDK)
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Configurar o Gradle
+      uses: gradle/actions/setup-gradle@v3
+      with:
+        gradle-version: '8.7'
+
+    - name: Compilar o APK de Teste (Debug)
+      run: gradle assembleDebug
+
+    - name: Publicar APK na aba Releases
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: "v1.0-${{ github.run_number }}"
+        name: "Build APK #${{ github.run_number }}"
+        body: "APK gerado  via GitHub Actions (Versão Debug)."
+        draft: false
+        prerelease: false
+        files: app/build/outputs/apk/debug/*.apk
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
