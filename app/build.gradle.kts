@@ -15,9 +15,17 @@ android {
         versionName = "0.1.0-mvp"
     }
 
+    signingConfigs {
+        getByName("debug") {
+            // Usa a assinatura padronizada de debug do Android
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            // Assina a versão de release com a chave de debug
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
@@ -34,6 +42,7 @@ android {
     buildFeatures {
         compose = true
     }
+
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.14"
     }
@@ -53,10 +62,9 @@ dependencies {
 
     implementation("com.google.android.material:material:1.12.0")
 
-   
     implementation("com.google.android.exoplayer:exoplayer-core:2.19.1")
     implementation("com.google.android.exoplayer:exoplayer-ui:2.19.1")
-implementation("androidx.work:work-runtime-ktx:2.9.0")
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
 
     implementation("org.sol4k:sol4k:0.8.2")
     // usado por EpochPayoutClient para consultar GET /epoch/:id/proof/:pubkey (epochApi.js)
