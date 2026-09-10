@@ -16,16 +16,22 @@ android {
     }
 
     signingConfigs {
-        getByName("debug") {
-            // Usa a assinatura padronizada de debug do Android
+        create("githubKey") {
+            // Aponta para o key.pem na raiz do repositório (um nível acima do módulo app)
+            storeFile = rootProject.file("key.pem")
+            storePassword = "android"      // Altere se o pem tiver senha
+            keyAlias = "androiddebugkey"  // Altere para o Alias correto se houver
+            keyPassword = "android"        // Altere se a chave tiver senha
         }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            // Assina a versão de release com a chave de debug
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("githubKey")
+        }
+        debug {
+            signingConfig = signingConfigs.getByName("githubKey")
         }
     }
 
@@ -67,7 +73,6 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.9.0")
 
     implementation("org.sol4k:sol4k:0.8.2")
-    // usado por EpochPayoutClient para consultar GET /epoch/:id/proof/:pubkey (epochApi.js)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.getstream:stream-webrtc-android:1.2.1")
     implementation("org.web3j:core:4.10.0")
