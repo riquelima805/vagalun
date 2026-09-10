@@ -2,23 +2,20 @@ package com.decentstorage.app.network
 
 import com.decentstorage.app.erasure.AvailableShard
 import com.decentstorage.app.erasure.ReedSolomon
+import net.i2p.crypto.eddsa.EdDSAEngine
+import net.i2p.crypto.eddsa.EdDSAPublicKey
+import net.i2p.crypto.eddsa.spec.EdDSANamedCurveTable
+import net.i2p.crypto.eddsa.spec.EdDSAPublicKeySpec
 import org.json.JSONArray
 import org.json.JSONObject
+import org.sol4k.Base58
 import java.io.File
+import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
-/**
- * `dataDir`: pasta (normalmente `filesDir` da Activity/App) onde o registry
- * persiste `files` e `peers` conhecidos (`gossip-registry.json`). Sem isso,
- * o mapa inteiro vive só na RAM: se o processo for morto pelo Android (app
- * em background por um tempo, pouca memória, etc.) e reaberto depois, o
- * dono do arquivo "esquece" que ele existe — mesmo os shards continuando
- * intactos nos peers que hospedam. Mesmo problema que o gateway (sever/
- * gateway/registry.js) já resolveu do lado dele, com o mesmo padrão aqui:
- * escrita atômica (.tmp + rename) e debounce pra não gravar a cada gossip.
- */
+
 class GossipRegistry(
     val selfNodeId: String,
     val selfHost: String,
@@ -64,6 +61,19 @@ class GossipRegistry(
         var blocks: MutableList<BlockMeta>
     )
 
+    // --- Índice de sites (navegador P2P) ---
+  
+    data class SiteRoute(val path: String, val fileId: String, val contentType: String, val fileKeyB64: String)
+    data class SiteMeta(
+        val domain: String,
+        val ownerPubkeyB58: String,
+        val routes: List<SiteRoute>,
+        val signatureB64: String,
+        val updatedAt: Long
+    )
+
+    private val sites = ConcurrentHashMap<String, SiteMeta>()
+
     private val peers = ConcurrentHashMap<String, PeerInfo>()
     private val files = ConcurrentHashMap<String, FileMeta>()
     private val executor = Executors.newSingleThreadScheduledExecutor()
@@ -84,6 +94,7 @@ class GossipRegistry(
         try {
             val raw = JSONObject(file.readText())
             mergeFiles(raw.optJSONArray("files") ?: JSONArray())
+            mergeSites(raw.optJSONArray("sites") ?: JSONArray())
             val peersArr = raw.optJSONArray("peers") ?: JSONArray()
             for (i in 0 until peersArr.length()) {
                 val o = peersArr.getJSONObject(i)
@@ -104,6 +115,7 @@ class GossipRegistry(
                 val out = JSONObject()
                     .put("peers", serializePeersForPersistence())
                     .put("files", serializeFiles())
+                    .put("sites", serializeSites())
                 val tmp = File(file.parentFile, "${file.name}.tmp")
                 tmp.writeText(out.toString())
                 if (!tmp.renameTo(file)) {
@@ -163,6 +175,44 @@ class GossipRegistry(
     fun getFile(fileId: String): FileMeta? = files[fileId]
     fun knownPeers(): List<PeerInfo> = peers.values.toList()
 
+    // Mesma fórmula do gateway.js: assina/verifica "domain\npath|fileId|contentType"
+    // ordenado por path — string canônica, sem espaço pra ambiguidade.
+    fun canonicalManifest(domain: String, routes: List<SiteRoute>): String {
+        val sorted = routes.sortedBy { it.path }
+        val body = sorted.joinToString("\n") { "${it.path}|${it.fileId}|${it.contentType}" }
+        return "$domain\n$body"
+    }
+
+    private fun verifySiteSignature(domain: String, ownerPubkeyB58: String, routes: List<SiteRoute>, signatureB64: String): Boolean {
+        return try {
+            val message = canonicalManifest(domain, routes).toByteArray(Charsets.UTF_8)
+            val sig = Base64.getDecoder().decode(signatureB64)
+            val pubkeyBytes = Base58.decode(ownerPubkeyB58)
+            val spec = EdDSANamedCurveTable.getByName(EdDSANamedCurveTable.ED_25519)
+            val pub = EdDSAPublicKey(EdDSAPublicKeySpec(pubkeyBytes, spec))
+            val engine = EdDSAEngine()
+            engine.initVerify(pub)
+            engine.update(message)
+            engine.verify(sig)
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    // Este node NUNCA confia num manifesto que não conseguiu verificar sozinho —
+    // seja publicado localmente, seja aprendido de outro peer (ou do gateway,
+    // via meshBridge) via gossip.
+    fun registerSite(domain: String, ownerPubkeyB58: String, routes: List<SiteRoute>, signatureB64: String): Boolean {
+        if (!verifySiteSignature(domain, ownerPubkeyB58, routes, signatureB64)) return false
+        val candidate = SiteMeta(domain, ownerPubkeyB58, routes, signatureB64, System.currentTimeMillis())
+        sites[domain] = candidate
+        scheduleSave()
+        return true
+    }
+
+    fun getSite(domain: String): SiteMeta? = sites[domain]
+    fun listSites(): List<String> = sites.keys.toList()
+
     private fun bumpScore(nodeId: String, delta: Int) {
         peers[nodeId]?.let { it.score = (it.score + delta).coerceIn(0, 100) }
     }
@@ -205,16 +255,65 @@ class GossipRegistry(
             val payload = JSONObject()
                 .put("peers", serializePeers())
                 .put("files", serializeFiles())
+                .put("sites", serializeSites())
             val response = peer.transport.gossip(payload) ?: continue
             mergePeers(response.optJSONArray("peers") ?: JSONArray())
             mergeFiles(response.optJSONArray("files") ?: JSONArray())
+            mergeSites(response.optJSONArray("sites") ?: JSONArray())
         }
     }
 
     fun handleIncomingGossip(payload: JSONObject): JSONObject {
         mergePeers(payload.optJSONArray("peers") ?: JSONArray())
         mergeFiles(payload.optJSONArray("files") ?: JSONArray())
-        return JSONObject().put("peers", serializePeers()).put("files", serializeFiles())
+        mergeSites(payload.optJSONArray("sites") ?: JSONArray())
+        return JSONObject().put("peers", serializePeers()).put("files", serializeFiles()).put("sites", serializeSites())
+    }
+
+    private fun serializeSites(): JSONArray {
+        val arr = JSONArray()
+        for (s in sites.values) {
+            val routesArr = JSONArray()
+            for (r in s.routes) {
+                routesArr.put(
+                    JSONObject().put("path", r.path).put("fileId", r.fileId)
+                        .put("contentType", r.contentType).put("fileKeyB64", r.fileKeyB64)
+                )
+            }
+            arr.put(
+                JSONObject()
+                    .put("domain", s.domain).put("ownerPubkeyB58", s.ownerPubkeyB58)
+                    .put("routes", routesArr).put("signatureB64", s.signatureB64)
+                    .put("updatedAt", s.updatedAt)
+            )
+        }
+        return arr
+    }
+
+    // Re-verifica a assinatura de todo manifesto vindo de outro peer antes de aceitar —
+    // gossip é só transporte, confiança continua sendo 100% criptográfica, nunca "confio
+    // porque veio de um peer que eu já conhecia".
+    private fun mergeSites(arr: JSONArray) {
+        for (i in 0 until arr.length()) {
+            val o = arr.getJSONObject(i)
+            val domain = o.getString("domain")
+            val incomingUpdatedAt = o.optLong("updatedAt", 0)
+            val existing = sites[domain]
+            if (existing != null && existing.updatedAt >= incomingUpdatedAt) continue
+
+            val routesArr = o.getJSONArray("routes")
+            val routes = mutableListOf<SiteRoute>()
+            for (j in 0 until routesArr.length()) {
+                val r = routesArr.getJSONObject(j)
+                routes.add(SiteRoute(r.getString("path"), r.getString("fileId"), r.getString("contentType"), r.optString("fileKeyB64", "")))
+            }
+            val ownerPubkeyB58 = o.getString("ownerPubkeyB58")
+            val signatureB64 = o.getString("signatureB64")
+            if (!verifySiteSignature(domain, ownerPubkeyB58, routes, signatureB64)) continue // manifesto forjado/corrompido: ignora
+
+            sites[domain] = SiteMeta(domain, ownerPubkeyB58, routes, signatureB64, incomingUpdatedAt)
+            scheduleSave()
+        }
     }
 
     private fun serializePeers(): JSONArray {
