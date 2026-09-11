@@ -15,7 +15,16 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
-
+/**
+ * `dataDir`: pasta (normalmente `filesDir` da Activity/App) onde o registry
+ * persiste `files` e `peers` conhecidos (`gossip-registry.json`). Sem isso,
+ * o mapa inteiro vive só na RAM: se o processo for morto pelo Android (app
+ * em background por um tempo, pouca memória, etc.) e reaberto depois, o
+ * dono do arquivo "esquece" que ele existe — mesmo os shards continuando
+ * intactos nos peers que hospedam. Mesmo problema que o gateway (sever/
+ * gateway/registry.js) já resolveu do lado dele, com o mesmo padrão aqui:
+ * escrita atômica (.tmp + rename) e debounce pra não gravar a cada gossip.
+ */
 class GossipRegistry(
     val selfNodeId: String,
     val selfHost: String,
@@ -62,7 +71,13 @@ class GossipRegistry(
     )
 
     // --- Índice de sites (navegador P2P) ---
-  
+    // Espelha exatamente o `sites` do gateway (sever/gateway/registry.js): mesmo formato
+    // de rota (path, fileId, contentType) e mesma assinatura Ed25519 sobre o mesmo
+    // canonicalManifest(domain, routes). A diferença é que aqui roda dentro do próprio
+    // app, gossipado peer-a-peer junto com `peers`/`files` (mesmo transporte, mesmo
+    // round de 6s) — nenhum nó precisa de HTTP/VPS pra aprender sobre um site.
+    // fileKeyB64 viaja por fora da assinatura (mesma decisão do gateway: só é seguro
+    // publicar a chave pra conteúdo que já é público por natureza, como um site).
     data class SiteRoute(val path: String, val fileId: String, val contentType: String, val fileKeyB64: String)
     data class SiteMeta(
         val domain: String,
@@ -199,9 +214,8 @@ class GossipRegistry(
         }
     }
 
-    // Este node NUNCA confia num manifesto que não conseguiu verificar sozinho —
-    // seja publicado localmente, seja aprendido de outro peer (ou do gateway,
-    // via meshBridge) via gossip.
+    // O navegador NUNCA confia num manifesto que não conseguiu verificar sozinho —
+    // seja publicado localmente, seja aprendido de outro peer via gossip.
     fun registerSite(domain: String, ownerPubkeyB58: String, routes: List<SiteRoute>, signatureB64: String): Boolean {
         if (!verifySiteSignature(domain, ownerPubkeyB58, routes, signatureB64)) return false
         val candidate = SiteMeta(domain, ownerPubkeyB58, routes, signatureB64, System.currentTimeMillis())
@@ -249,24 +263,38 @@ class GossipRegistry(
         }
     }
 
+    // FIX: cada peer da amostra é isolado em try/catch. Antes, se UM peer
+    // devolvesse um "files"/"sites" em formato levemente diferente (versão
+    // antiga do app-node, campo faltando) e mergeFiles/mergeSites explodisse,
+    // o for inteiro morria ali — os outros peers da rodada nunca eram
+    // processados. Era por isso que "às vezes o site chega e o arquivo não":
+    // dependia de qual peer vinha primeiro no shuffled().
     private fun gossipRound() {
         val sample = peers.values.filter { it.alive }.shuffled().take(3)
         for (peer in sample) {
-            val payload = JSONObject()
-                .put("peers", serializePeers())
-                .put("files", serializeFiles())
-                .put("sites", serializeSites())
-            val response = peer.transport.gossip(payload) ?: continue
-            mergePeers(response.optJSONArray("peers") ?: JSONArray())
-            mergeFiles(response.optJSONArray("files") ?: JSONArray())
-            mergeSites(response.optJSONArray("sites") ?: JSONArray())
+            try {
+                val payload = JSONObject()
+                    .put("peers", serializePeers())
+                    .put("files", serializeFiles())
+                    .put("sites", serializeSites())
+                val response = peer.transport.gossip(payload) ?: continue
+                mergePeers(response.optJSONArray("peers") ?: JSONArray())
+                mergeFiles(response.optJSONArray("files") ?: JSONArray())
+                mergeSites(response.optJSONArray("sites") ?: JSONArray())
+            } catch (e: Exception) {
+                // um peer ruim não pode travar a rodada inteira
+                e.printStackTrace()
+            }
         }
     }
 
+    // FIX: mesmo raciocínio do lado de quem RECEBE gossip — um campo malformado
+    // em "files" não pode impedir "peers"/"sites" de serem processados, nem
+    // impedir a resposta de ser montada no final.
     fun handleIncomingGossip(payload: JSONObject): JSONObject {
-        mergePeers(payload.optJSONArray("peers") ?: JSONArray())
-        mergeFiles(payload.optJSONArray("files") ?: JSONArray())
-        mergeSites(payload.optJSONArray("sites") ?: JSONArray())
+        try { mergePeers(payload.optJSONArray("peers") ?: JSONArray()) } catch (e: Exception) { e.printStackTrace() }
+        try { mergeFiles(payload.optJSONArray("files") ?: JSONArray()) } catch (e: Exception) { e.printStackTrace() }
+        try { mergeSites(payload.optJSONArray("sites") ?: JSONArray()) } catch (e: Exception) { e.printStackTrace() }
         return JSONObject().put("peers", serializePeers()).put("files", serializeFiles()).put("sites", serializeSites())
     }
 
