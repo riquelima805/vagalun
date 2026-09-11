@@ -18,7 +18,7 @@ android {
     signingConfigs {
         create("githubKey") {
             // Aponta para o key.pem na raiz do repositório (um nível acima do módulo app)
-            storeFile = rootProject.file("key.pem")
+            storeFile = rootProject.file("debug.keystore")
             storePassword = "android"      // Altere se o pem tiver senha
             keyAlias = "androiddebugkey"  // Altere para o Alias correto se houver
             keyPassword = "android"        // Altere se a chave tiver senha
