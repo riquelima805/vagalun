@@ -82,20 +82,28 @@ import kotlin.math.sin
 
 
 object VagalunColors {
-    val bg = Color(0xFF000000)          
-    val bgCard = Color(0xFF121212)      
-    val bgCard2 = Color(0xFF1E1E1E)     
     
-    val red = Color(0xFFE50914)         
-    val redSoft = Color(0xFFB71C1C)     
+    val bg = Color(0xFFFBF4E9)
     
-    val textPrimary = Color(0xFFFFFFFF) 
-    val textSecondary = Color(0xFFA0A0A0) 
+    val bgCard = Color(0xFFFFFFFF)
+   
+    val bgCard2 = Color(0xFFF1E4CF)
     
+    val cardBorder = Color(0xFFEADFC8)
 
-    val danger = Color(0xFFFF4D4D)
-    val warning = Color(0xFFFFB020)
-    val success = Color(0xFF2ECC71)
+    val red = Color(0xFFB3261E)
+   
+    val redSoft = Color(0xFFC1443B)
+   
+    val redTint = Color(0xFFF6DEDA)
+
+  
+    val textPrimary = Color(0xFF2B2118)
+    val textSecondary = Color(0xFF7A6A55)
+
+    val danger = Color(0xFFB3261E)
+    val warning = Color(0xFFC98A2C)
+    val success = Color(0xFF3E8E5B)
 }
 
 object VagalunTypography {
@@ -540,11 +548,13 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MaterialTheme(
-                colorScheme = darkColorScheme(
+                colorScheme = lightColorScheme(
                     background = VagalunColors.bg,
                     surface = VagalunColors.bgCard,
                     primary = VagalunColors.red,
-                    secondary = VagalunColors.redSoft
+                    secondary = VagalunColors.redSoft,
+                    onBackground = VagalunColors.textPrimary,
+                    onSurface = VagalunColors.textPrimary
                 )
             ) {
                 VagalunApp()
@@ -1081,10 +1091,24 @@ fun DashboardScreen(
 
         AnimatedCard {
             Column(Modifier.padding(VagalunSpacing.large)) {
-                Text(
-                    if (nodeActive) "🟢 Sistema ativo" else "⚪ Sistema pausado",
-                    style = VagalunTypography.titleMedium
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Sistema", style = VagalunTypography.titleMedium)
+                    Spacer(Modifier.width(VagalunSpacing.small))
+                    // Selo de status em texto — sem indicador circular.
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (nodeActive) VagalunColors.success.copy(alpha = 0.14f) else VagalunColors.bgCard2)
+                            .padding(horizontal = 10.dp, vertical = 3.dp)
+                    ) {
+                        Text(
+                            if (nodeActive) "ATIVO" else "PAUSADO",
+                            color = if (nodeActive) VagalunColors.success else VagalunColors.textSecondary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
                 Spacer(Modifier.height(4.dp))
                 Text(
                     if (nodeActive) "Seu dispositivo está contribuindo com a rede"
@@ -1290,7 +1314,8 @@ fun AnimatedCard(content: @Composable () -> Unit) {
     Card(
         shape = VagalunShapes.card,
         colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+        border = BorderStroke(1.dp, VagalunColors.cardBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         modifier = Modifier
             .fillMaxWidth()
             .alpha(alpha)
@@ -1424,6 +1449,8 @@ fun FileRow(entry: UiFileEntry, onClick: () -> Unit, onDelete: () -> Unit) {
 
     Card(
         colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard),
+        border = BorderStroke(1.dp, VagalunColors.cardBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -1512,6 +1539,8 @@ fun UploadScreen(
         // Preview do arquivo já escolhido no seletor do sistema (sem drag-and-drop — é celular).
         Card(
             colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard),
+            border = BorderStroke(1.dp, VagalunColors.cardBorder),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
             shape = VagalunShapes.card,
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -1627,7 +1656,8 @@ fun PrivacyOptionRow(option: FilePrivacy, selected: Boolean, onSelect: () -> Uni
     Card(
         onClick = onSelect,
         colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard),
-        border = if (selected) BorderStroke(1.5.dp, VagalunColors.red) else null,
+        border = BorderStroke(if (selected) 1.5.dp else 1.dp, if (selected) VagalunColors.red else VagalunColors.cardBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         shape = VagalunShapes.small,
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
     ) {
@@ -1684,9 +1714,12 @@ fun MediaViewerScreen(
                 Modifier.align(Alignment.Center),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                CircularProgressIndicator(color = VagalunColors.red, modifier = Modifier.size(48.dp))
+                CircularProgressIndicator(color = VagalunColors.redSoft, modifier = Modifier.size(48.dp))
                 Spacer(Modifier.height(VagalunSpacing.small))
-                Text("Buscando shards na rede...", style = VagalunTypography.bodySecondary)
+                Text(
+                    "Buscando shards na rede...",
+                    style = VagalunTypography.bodySecondary.copy(color = Color(0xFFCFC7BC))
+                )
             }
             mimeType.startsWith("image") && bytes != null -> {
                 val bmp = remember(bytes) {
@@ -1841,6 +1874,8 @@ fun WalletOnboardingScreen(onSeedReady: (String) -> Unit) {
                 "create" -> {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = VagalunColors.bgCard),
+                        border = BorderStroke(1.dp, VagalunColors.cardBorder),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                         shape = VagalunShapes.card
                     ) {
                         Text(
