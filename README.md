@@ -11,6 +11,8 @@
 
 *"Mesmo que a hospedagem caia, mesmo que o site saia do ar em algum canto da rede — se existe um peer com o conteúdo, o navegador acha ele."*
 
+Navegador: https://github.com/riquelima805/vagalume-browser/
+
 </div>
 
 ---
