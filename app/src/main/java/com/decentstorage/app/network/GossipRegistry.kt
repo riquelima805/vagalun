@@ -2,15 +2,9 @@ package com.decentstorage.app.network
 
 import com.decentstorage.app.erasure.AvailableShard
 import com.decentstorage.app.erasure.ReedSolomon
-import net.i2p.crypto.eddsa.EdDSAEngine
-import net.i2p.crypto.eddsa.EdDSAPublicKey
-import net.i2p.crypto.eddsa.spec.EdDSANamedCurveTable
-import net.i2p.crypto.eddsa.spec.EdDSAPublicKeySpec
 import org.json.JSONArray
 import org.json.JSONObject
-import org.sol4k.Base58
 import java.io.File
-import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -67,27 +61,12 @@ class GossipRegistry(
         val n: Int,
         val blockSize: Int,
         val originalLength: Int,
-        var blocks: MutableList<BlockMeta>
+        var blocks: MutableList<BlockMeta>,
+        // Mesmo raciocínio do SiteMeta: sem isso o gossip nunca aceita uma
+        // correção de placement (ex.: node-0 traduzido errado -> corrigido),
+        // porque o fileId já era conhecido com um placement antigo.
+        var updatedAt: Long = System.currentTimeMillis()
     )
-
-    // --- Índice de sites (navegador P2P) ---
-    // Espelha exatamente o `sites` do gateway (sever/gateway/registry.js): mesmo formato
-    // de rota (path, fileId, contentType) e mesma assinatura Ed25519 sobre o mesmo
-    // canonicalManifest(domain, routes). A diferença é que aqui roda dentro do próprio
-    // app, gossipado peer-a-peer junto com `peers`/`files` (mesmo transporte, mesmo
-    // round de 6s) — nenhum nó precisa de HTTP/VPS pra aprender sobre um site.
-    // fileKeyB64 viaja por fora da assinatura (mesma decisão do gateway: só é seguro
-    // publicar a chave pra conteúdo que já é público por natureza, como um site).
-    data class SiteRoute(val path: String, val fileId: String, val contentType: String, val fileKeyB64: String)
-    data class SiteMeta(
-        val domain: String,
-        val ownerPubkeyB58: String,
-        val routes: List<SiteRoute>,
-        val signatureB64: String,
-        val updatedAt: Long
-    )
-
-    private val sites = ConcurrentHashMap<String, SiteMeta>()
 
     private val peers = ConcurrentHashMap<String, PeerInfo>()
     private val files = ConcurrentHashMap<String, FileMeta>()
@@ -109,7 +88,6 @@ class GossipRegistry(
         try {
             val raw = JSONObject(file.readText())
             mergeFiles(raw.optJSONArray("files") ?: JSONArray())
-            mergeSites(raw.optJSONArray("sites") ?: JSONArray())
             val peersArr = raw.optJSONArray("peers") ?: JSONArray()
             for (i in 0 until peersArr.length()) {
                 val o = peersArr.getJSONObject(i)
@@ -130,7 +108,6 @@ class GossipRegistry(
                 val out = JSONObject()
                     .put("peers", serializePeersForPersistence())
                     .put("files", serializeFiles())
-                    .put("sites", serializeSites())
                 val tmp = File(file.parentFile, "${file.name}.tmp")
                 tmp.writeText(out.toString())
                 if (!tmp.renameTo(file)) {
@@ -186,46 +163,15 @@ class GossipRegistry(
         peers[nodeId]?.webrtcTransport = null
     }
 
-    fun registerFile(meta: FileMeta) { files[meta.fileId] = meta; scheduleSave() }
+    fun registerFile(meta: FileMeta) {
+        // Publicação/republicação local sempre "vence" o que já estava conhecido,
+        // então carimba com o horário atual (mesma regra usada no merge de gossip).
+        meta.updatedAt = System.currentTimeMillis()
+        files[meta.fileId] = meta
+        scheduleSave()
+    }
     fun getFile(fileId: String): FileMeta? = files[fileId]
     fun knownPeers(): List<PeerInfo> = peers.values.toList()
-
-    // Mesma fórmula do gateway.js: assina/verifica "domain\npath|fileId|contentType"
-    // ordenado por path — string canônica, sem espaço pra ambiguidade.
-    fun canonicalManifest(domain: String, routes: List<SiteRoute>): String {
-        val sorted = routes.sortedBy { it.path }
-        val body = sorted.joinToString("\n") { "${it.path}|${it.fileId}|${it.contentType}" }
-        return "$domain\n$body"
-    }
-
-    private fun verifySiteSignature(domain: String, ownerPubkeyB58: String, routes: List<SiteRoute>, signatureB64: String): Boolean {
-        return try {
-            val message = canonicalManifest(domain, routes).toByteArray(Charsets.UTF_8)
-            val sig = Base64.getDecoder().decode(signatureB64)
-            val pubkeyBytes = Base58.decode(ownerPubkeyB58)
-            val spec = EdDSANamedCurveTable.getByName(EdDSANamedCurveTable.ED_25519)
-            val pub = EdDSAPublicKey(EdDSAPublicKeySpec(pubkeyBytes, spec))
-            val engine = EdDSAEngine()
-            engine.initVerify(pub)
-            engine.update(message)
-            engine.verify(sig)
-        } catch (e: Exception) {
-            false
-        }
-    }
-
-    // O navegador NUNCA confia num manifesto que não conseguiu verificar sozinho —
-    // seja publicado localmente, seja aprendido de outro peer via gossip.
-    fun registerSite(domain: String, ownerPubkeyB58: String, routes: List<SiteRoute>, signatureB64: String): Boolean {
-        if (!verifySiteSignature(domain, ownerPubkeyB58, routes, signatureB64)) return false
-        val candidate = SiteMeta(domain, ownerPubkeyB58, routes, signatureB64, System.currentTimeMillis())
-        sites[domain] = candidate
-        scheduleSave()
-        return true
-    }
-
-    fun getSite(domain: String): SiteMeta? = sites[domain]
-    fun listSites(): List<String> = sites.keys.toList()
 
     private fun bumpScore(nodeId: String, delta: Int) {
         peers[nodeId]?.let { it.score = (it.score + delta).coerceIn(0, 100) }
@@ -263,85 +209,22 @@ class GossipRegistry(
         }
     }
 
-    // FIX: cada peer da amostra é isolado em try/catch. Antes, se UM peer
-    // devolvesse um "files"/"sites" em formato levemente diferente (versão
-    // antiga do app-node, campo faltando) e mergeFiles/mergeSites explodisse,
-    // o for inteiro morria ali — os outros peers da rodada nunca eram
-    // processados. Era por isso que "às vezes o site chega e o arquivo não":
-    // dependia de qual peer vinha primeiro no shuffled().
     private fun gossipRound() {
         val sample = peers.values.filter { it.alive }.shuffled().take(3)
         for (peer in sample) {
-            try {
-                val payload = JSONObject()
-                    .put("peers", serializePeers())
-                    .put("files", serializeFiles())
-                    .put("sites", serializeSites())
-                val response = peer.transport.gossip(payload) ?: continue
-                mergePeers(response.optJSONArray("peers") ?: JSONArray())
-                mergeFiles(response.optJSONArray("files") ?: JSONArray())
-                mergeSites(response.optJSONArray("sites") ?: JSONArray())
-            } catch (e: Exception) {
-                // um peer ruim não pode travar a rodada inteira
-                e.printStackTrace()
-            }
+            val payload = JSONObject()
+                .put("peers", serializePeers())
+                .put("files", serializeFiles())
+            val response = peer.transport.gossip(payload) ?: continue
+            mergePeers(response.optJSONArray("peers") ?: JSONArray())
+            mergeFiles(response.optJSONArray("files") ?: JSONArray())
         }
     }
 
-    // FIX: mesmo raciocínio do lado de quem RECEBE gossip — um campo malformado
-    // em "files" não pode impedir "peers"/"sites" de serem processados, nem
-    // impedir a resposta de ser montada no final.
     fun handleIncomingGossip(payload: JSONObject): JSONObject {
-        try { mergePeers(payload.optJSONArray("peers") ?: JSONArray()) } catch (e: Exception) { e.printStackTrace() }
-        try { mergeFiles(payload.optJSONArray("files") ?: JSONArray()) } catch (e: Exception) { e.printStackTrace() }
-        try { mergeSites(payload.optJSONArray("sites") ?: JSONArray()) } catch (e: Exception) { e.printStackTrace() }
-        return JSONObject().put("peers", serializePeers()).put("files", serializeFiles()).put("sites", serializeSites())
-    }
-
-    private fun serializeSites(): JSONArray {
-        val arr = JSONArray()
-        for (s in sites.values) {
-            val routesArr = JSONArray()
-            for (r in s.routes) {
-                routesArr.put(
-                    JSONObject().put("path", r.path).put("fileId", r.fileId)
-                        .put("contentType", r.contentType).put("fileKeyB64", r.fileKeyB64)
-                )
-            }
-            arr.put(
-                JSONObject()
-                    .put("domain", s.domain).put("ownerPubkeyB58", s.ownerPubkeyB58)
-                    .put("routes", routesArr).put("signatureB64", s.signatureB64)
-                    .put("updatedAt", s.updatedAt)
-            )
-        }
-        return arr
-    }
-
-    // Re-verifica a assinatura de todo manifesto vindo de outro peer antes de aceitar —
-    // gossip é só transporte, confiança continua sendo 100% criptográfica, nunca "confio
-    // porque veio de um peer que eu já conhecia".
-    private fun mergeSites(arr: JSONArray) {
-        for (i in 0 until arr.length()) {
-            val o = arr.getJSONObject(i)
-            val domain = o.getString("domain")
-            val incomingUpdatedAt = o.optLong("updatedAt", 0)
-            val existing = sites[domain]
-            if (existing != null && existing.updatedAt >= incomingUpdatedAt) continue
-
-            val routesArr = o.getJSONArray("routes")
-            val routes = mutableListOf<SiteRoute>()
-            for (j in 0 until routesArr.length()) {
-                val r = routesArr.getJSONObject(j)
-                routes.add(SiteRoute(r.getString("path"), r.getString("fileId"), r.getString("contentType"), r.optString("fileKeyB64", "")))
-            }
-            val ownerPubkeyB58 = o.getString("ownerPubkeyB58")
-            val signatureB64 = o.getString("signatureB64")
-            if (!verifySiteSignature(domain, ownerPubkeyB58, routes, signatureB64)) continue // manifesto forjado/corrompido: ignora
-
-            sites[domain] = SiteMeta(domain, ownerPubkeyB58, routes, signatureB64, incomingUpdatedAt)
-            scheduleSave()
-        }
+        mergePeers(payload.optJSONArray("peers") ?: JSONArray())
+        mergeFiles(payload.optJSONArray("files") ?: JSONArray())
+        return JSONObject().put("peers", serializePeers()).put("files", serializeFiles())
     }
 
     private fun serializePeers(): JSONArray {
@@ -384,6 +267,7 @@ class GossipRegistry(
                     .put("k", f.k).put("m", f.m).put("n", f.n)
                     .put("blockSize", f.blockSize).put("originalLength", f.originalLength)
                     .put("blocks", blocksArr)
+                    .put("updatedAt", f.updatedAt)
             )
         }
         return arr
@@ -393,8 +277,14 @@ class GossipRegistry(
         for (i in 0 until arr.length()) {
             val o = arr.getJSONObject(i)
             val fileId = o.getString("fileId")
-            if (files.containsKey(fileId)) continue
-            
+            val incomingUpdatedAt = o.optLong("updatedAt", 0)
+            val existing = files[fileId]
+            // FIX: antes era "if (files.containsKey(fileId)) continue" — a primeira versão
+            // aprendida de um fileId (mesmo com placement/nodeId errado, ex.: "node-0" cru)
+            // ficava travada pra sempre, porque nenhum push corrigido depois era aceito.
+            // Agora só ignora se o que já temos é igual ou mais novo que o recebido.
+            if (existing != null && existing.updatedAt >= incomingUpdatedAt) continue
+
             val blocks = mutableListOf<BlockMeta>()
             val bArr = o.getJSONArray("blocks")
             
@@ -417,7 +307,8 @@ class GossipRegistry(
             
             files[fileId] = FileMeta(
                 fileId, o.getString("fileName"), o.getInt("k"), o.getInt("m"), o.getInt("n"),
-                o.getInt("blockSize"), o.getInt("originalLength"), blocks
+                o.getInt("blockSize"), o.getInt("originalLength"), blocks,
+                incomingUpdatedAt
             )
             scheduleSave()
         }
