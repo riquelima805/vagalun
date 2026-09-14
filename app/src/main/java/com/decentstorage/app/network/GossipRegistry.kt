@@ -404,7 +404,6 @@ class GossipRegistry(
         return arr
     }
 
-    .
     private fun mergeFiles(arr: JSONArray) {
         for (i in 0 until arr.length()) {
             val o = arr.getJSONObject(i)
