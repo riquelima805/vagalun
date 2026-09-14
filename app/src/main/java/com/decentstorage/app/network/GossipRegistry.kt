@@ -2,16 +2,22 @@ package com.decentstorage.app.network
 
 import com.decentstorage.app.erasure.AvailableShard
 import com.decentstorage.app.erasure.ReedSolomon
+import net.i2p.crypto.eddsa.EdDSAEngine
+import net.i2p.crypto.eddsa.EdDSAPublicKey
+import net.i2p.crypto.eddsa.spec.EdDSANamedCurveTable
+import net.i2p.crypto.eddsa.spec.EdDSAPublicKeySpec
 import org.json.JSONArray
 import org.json.JSONObject
+import org.sol4k.Base58
 import java.io.File
+import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 /**
  * `dataDir`: pasta (normalmente `filesDir` da Activity/App) onde o registry
- * persiste `files` e `peers` conhecidos (`gossip-registry.json`). Sem isso,
+ * persiste `files`, `sites` e `peers` conhecidos (`gossip-registry.json`). Sem isso,
  * o mapa inteiro vive só na RAM: se o processo for morto pelo Android (app
  * em background por um tempo, pouca memória, etc.) e reaberto depois, o
  * dono do arquivo "esquece" que ele existe — mesmo os shards continuando
@@ -35,7 +41,7 @@ class GossipRegistry(
         var lastSeen: Long = System.currentTimeMillis(),
         var alive: Boolean = true,
         var freeBytes: Long = 0,
-        
+
         var webrtcTransport: Transport? = null
     ) {
         val transport: Transport
@@ -53,6 +59,11 @@ class GossipRegistry(
         var placements: MutableList<Placement>
     )
 
+    // updatedAt: mesma ideia do SiteMeta.updatedAt — sem isso, mergeFiles() só
+    // aceitava um fileId na PRIMEIRA vez que o via e travava o placement pra
+    // sempre (nem re-publicar/backfillar de novo no gateway resolvia, porque
+    // `files.containsKey(fileId)` já dava true e o `continue` matava o merge
+    // antes de olhar pro conteúdo novo). Ver comentário em mergeFiles().
     data class FileMeta(
         val fileId: String,
         val fileName: String,
@@ -62,17 +73,45 @@ class GossipRegistry(
         val blockSize: Int,
         val originalLength: Int,
         var blocks: MutableList<BlockMeta>,
-        // Mesmo raciocínio do SiteMeta: sem isso o gossip nunca aceita uma
-        // correção de placement (ex.: node-0 traduzido errado -> corrigido),
-        // porque o fileId já era conhecido com um placement antigo.
         var updatedAt: Long = System.currentTimeMillis()
     )
+
+    // --- Índice de sites (mesmo mecanismo do vagalume-browser) ---
+    // Espelha exatamente o `sites` do gateway (sever/gateway/registry.js): mesmo formato
+    // de rota (path, fileId, contentType) e mesma assinatura Ed25519 sobre o mesmo
+    // canonicalManifest(domain, routes). Roda dentro do próprio app, gossipado
+    // peer-a-peer junto com `peers`/`files` (mesmo transporte, mesmo round de 6s) —
+    // nenhum nó precisa de HTTP/VPS pra aprender ou repassar um site.
+    // fileKeyB64 viaja por fora da assinatura (mesma decisão do gateway: só é seguro
+    // publicar a chave pra conteúdo que já é público por natureza, como um site).
+    //
+    // FIX: essa classe/mapa não existia nesta cópia do GossipRegistry (só a do
+    // navegador tinha). Resultado: handleIncomingGossip()/gossipRound() nunca liam
+    // nem devolviam a chave "sites" do payload — todo node rodando esse app "comia"
+    // o campo e sempre respondia "sites":[], mesmo repassando pra frente o gossip de
+    // um peer que tinha sites conhecidos. Ver GossipRegistry.mergeSites, referenciado
+    // em sever/gateway/registry.js, que era o outro lado que faltava aqui.
+    data class SiteRoute(val path: String, val fileId: String, val contentType: String, val fileKeyB64: String)
+    data class SiteMeta(
+        val domain: String,
+        val ownerPubkeyB58: String,
+        val routes: List<SiteRoute>,
+        val signatureB64: String,
+        val updatedAt: Long
+    )
+
+    private val sites = ConcurrentHashMap<String, SiteMeta>()
 
     private val peers = ConcurrentHashMap<String, PeerInfo>()
     private val files = ConcurrentHashMap<String, FileMeta>()
     private val executor = Executors.newSingleThreadScheduledExecutor()
 
     private val ALIVE_TIMEOUT_MS = 15_000L
+
+    // Hook opcional de debug (mesmo padrão do navegador) — não afeta quem não setar.
+    var onEvent: ((String) -> Unit)? = null
+    private fun emit(msg: String) { onEvent?.invoke(msg) }
+    fun logDebug(msg: String) = emit(msg) // usado por StorageClient.kt (fora desta classe) pra registrar falha/sucesso de download
 
     // --- Persistência em disco (mesmo padrão do gateway-data.json) ---
     private val dataFile: File? = dataDir?.let { File(it, "gossip-registry.json") }
@@ -88,6 +127,7 @@ class GossipRegistry(
         try {
             val raw = JSONObject(file.readText())
             mergeFiles(raw.optJSONArray("files") ?: JSONArray())
+            mergeSites(raw.optJSONArray("sites") ?: JSONArray())
             val peersArr = raw.optJSONArray("peers") ?: JSONArray()
             for (i in 0 until peersArr.length()) {
                 val o = peersArr.getJSONObject(i)
@@ -108,10 +148,11 @@ class GossipRegistry(
                 val out = JSONObject()
                     .put("peers", serializePeersForPersistence())
                     .put("files", serializeFiles())
+                    .put("sites", serializeSites())
                 val tmp = File(file.parentFile, "${file.name}.tmp")
                 tmp.writeText(out.toString())
                 if (!tmp.renameTo(file)) {
-                    // fallback caso rename atômico falhe (ex.: filesystem diferente)
+                    
                     file.writeText(out.toString())
                     tmp.delete()
                 }
@@ -121,9 +162,7 @@ class GossipRegistry(
         }, 250, TimeUnit.MILLISECONDS)
     }
 
-    // Só nodeId/host/port — o resto (score, alive, freeBytes, transport) é
-    // estado efêmero que faz sentido recalcular do zero a cada boot via
-    // healthCheck()/gossip, não persistir.
+    
     private fun serializePeersForPersistence(): JSONArray {
         val arr = JSONArray()
         for (p in peers.values) {
@@ -143,8 +182,7 @@ class GossipRegistry(
                 PeerInfo(nodeId, host, port)
             }
         }
-        // só persiste quando é peer novo — atualizar lastSeen a cada gossip
-        // (que roda de poucos em poucos segundos) geraria escrita constante.
+       
         if (isNew) scheduleSave()
     }
 
@@ -164,14 +202,48 @@ class GossipRegistry(
     }
 
     fun registerFile(meta: FileMeta) {
-        // Publicação/republicação local sempre "vence" o que já estava conhecido,
-        // então carimba com o horário atual (mesma regra usada no merge de gossip).
+        
         meta.updatedAt = System.currentTimeMillis()
         files[meta.fileId] = meta
         scheduleSave()
     }
     fun getFile(fileId: String): FileMeta? = files[fileId]
     fun knownPeers(): List<PeerInfo> = peers.values.toList()
+
+    
+    fun canonicalManifest(domain: String, routes: List<SiteRoute>): String {
+        val sorted = routes.sortedBy { it.path }
+        val body = sorted.joinToString("\n") { "${it.path}|${it.fileId}|${it.contentType}" }
+        return "$domain\n$body"
+    }
+
+    private fun verifySiteSignature(domain: String, ownerPubkeyB58: String, routes: List<SiteRoute>, signatureB64: String): Boolean {
+        return try {
+            val message = canonicalManifest(domain, routes).toByteArray(Charsets.UTF_8)
+            val sig = Base64.getDecoder().decode(signatureB64)
+            val pubkeyBytes = Base58.decode(ownerPubkeyB58)
+            val spec = EdDSANamedCurveTable.getByName(EdDSANamedCurveTable.ED_25519)
+            val pub = EdDSAPublicKey(EdDSAPublicKeySpec(pubkeyBytes, spec))
+            val engine = EdDSAEngine()
+            engine.initVerify(pub)
+            engine.update(message)
+            engine.verify(sig)
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    
+    fun registerSite(domain: String, ownerPubkeyB58: String, routes: List<SiteRoute>, signatureB64: String): Boolean {
+        if (!verifySiteSignature(domain, ownerPubkeyB58, routes, signatureB64)) return false
+        val candidate = SiteMeta(domain, ownerPubkeyB58, routes, signatureB64, System.currentTimeMillis())
+        sites[domain] = candidate
+        scheduleSave()
+        return true
+    }
+
+    fun getSite(domain: String): SiteMeta? = sites[domain]
+    fun listSites(): List<String> = sites.keys.toList()
 
     private fun bumpScore(nodeId: String, delta: Int) {
         peers[nodeId]?.let { it.score = (it.score + delta).coerceIn(0, 100) }
@@ -211,20 +283,79 @@ class GossipRegistry(
 
     private fun gossipRound() {
         val sample = peers.values.filter { it.alive }.shuffled().take(3)
+        android.util.Log.d("VagalunGossip", "gossipRound: ${peers.size} peer(s) conhecido(s), ${sample.size} vivo(s) na amostra, sites antes=${sites.size}")
         for (peer in sample) {
             val payload = JSONObject()
                 .put("peers", serializePeers())
                 .put("files", serializeFiles())
-            val response = peer.transport.gossip(payload) ?: continue
+                .put("sites", serializeSites())
+            emit("GOSSIP -> ${peer.nodeId}\nENVIADO: ${payload}")
+            val response = peer.transport.gossip(payload)
+            if (response == null) {
+                android.util.Log.d("VagalunGossip", "gossip com ${peer.nodeId} retornou null (transporte falhou/timeout)")
+                emit("GOSSIP -> ${peer.nodeId}: SEM RESPOSTA (timeout/transporte falhou)")
+                continue
+            }
+            emit("GOSSIP -> ${peer.nodeId}\nRECEBIDO: ${response}")
             mergePeers(response.optJSONArray("peers") ?: JSONArray())
             mergeFiles(response.optJSONArray("files") ?: JSONArray())
+            mergeSites(response.optJSONArray("sites") ?: JSONArray())
+            android.util.Log.d("VagalunGossip", "gossip com ${peer.nodeId} ok — sites depois=${sites.size} (${sites.keys})")
         }
     }
 
     fun handleIncomingGossip(payload: JSONObject): JSONObject {
+        emit("GOSSIP <- recebido de fora\nRECEBIDO: ${payload}")
         mergePeers(payload.optJSONArray("peers") ?: JSONArray())
         mergeFiles(payload.optJSONArray("files") ?: JSONArray())
-        return JSONObject().put("peers", serializePeers()).put("files", serializeFiles())
+        mergeSites(payload.optJSONArray("sites") ?: JSONArray())
+        val resp = JSONObject().put("peers", serializePeers()).put("files", serializeFiles()).put("sites", serializeSites())
+        emit("GOSSIP <- respondendo\nENVIADO: ${resp}")
+        return resp
+    }
+
+    private fun serializeSites(): JSONArray {
+        val arr = JSONArray()
+        for (s in sites.values) {
+            val routesArr = JSONArray()
+            for (r in s.routes) {
+                routesArr.put(
+                    JSONObject().put("path", r.path).put("fileId", r.fileId)
+                        .put("contentType", r.contentType).put("fileKeyB64", r.fileKeyB64)
+                )
+            }
+            arr.put(
+                JSONObject()
+                    .put("domain", s.domain).put("ownerPubkeyB58", s.ownerPubkeyB58)
+                    .put("routes", routesArr).put("signatureB64", s.signatureB64)
+                    .put("updatedAt", s.updatedAt)
+            )
+        }
+        return arr
+    }
+
+    
+    private fun mergeSites(arr: JSONArray) {
+        for (i in 0 until arr.length()) {
+            val o = arr.getJSONObject(i)
+            val domain = o.getString("domain")
+            val incomingUpdatedAt = o.optLong("updatedAt", 0)
+            val existing = sites[domain]
+            if (existing != null && existing.updatedAt >= incomingUpdatedAt) continue
+
+            val routesArr = o.getJSONArray("routes")
+            val routes = mutableListOf<SiteRoute>()
+            for (j in 0 until routesArr.length()) {
+                val r = routesArr.getJSONObject(j)
+                routes.add(SiteRoute(r.getString("path"), r.getString("fileId"), r.getString("contentType"), r.optString("fileKeyB64", "")))
+            }
+            val ownerPubkeyB58 = o.getString("ownerPubkeyB58")
+            val signatureB64 = o.getString("signatureB64")
+            if (!verifySiteSignature(domain, ownerPubkeyB58, routes, signatureB64)) continue // manifesto forjado/corrompido: ignora
+
+            sites[domain] = SiteMeta(domain, ownerPubkeyB58, routes, signatureB64, incomingUpdatedAt)
+            scheduleSave()
+        }
     }
 
     private fun serializePeers(): JSONArray {
@@ -250,7 +381,7 @@ class GossipRegistry(
             for (b in f.blocks) {
                 val placementsArr = JSONArray()
                 for (p in b.placements) placementsArr.put(JSONObject().put("shardIndex", p.shardIndex).put("nodeId", p.nodeId))
-                
+
                 blocksArr.put(
                     JSONObject()
                         .put("blockIndex", b.blockIndex)
@@ -273,21 +404,21 @@ class GossipRegistry(
         return arr
     }
 
+    .
     private fun mergeFiles(arr: JSONArray) {
         for (i in 0 until arr.length()) {
             val o = arr.getJSONObject(i)
             val fileId = o.getString("fileId")
-            val incomingUpdatedAt = o.optLong("updatedAt", 0)
+            val incomingUpdatedAt = o.optLong("updatedAt", 0) 
             val existing = files[fileId]
-            // FIX: antes era "if (files.containsKey(fileId)) continue" — a primeira versão
-            // aprendida de um fileId (mesmo com placement/nodeId errado, ex.: "node-0" cru)
-            // ficava travada pra sempre, porque nenhum push corrigido depois era aceito.
-            // Agora só ignora se o que já temos é igual ou mais novo que o recebido.
-            if (existing != null && existing.updatedAt >= incomingUpdatedAt) continue
+            if (existing != null && existing.updatedAt >= incomingUpdatedAt) {
+                emit("FILE ignorado (versão não é mais nova): fileId=$fileId existente.updatedAt=${existing.updatedAt} recebido.updatedAt=$incomingUpdatedAt")
+                continue
+            }
 
             val blocks = mutableListOf<BlockMeta>()
             val bArr = o.getJSONArray("blocks")
-            
+
             for (j in 0 until bArr.length()) {
                 val b = bArr.getJSONObject(j)
                 val placements = mutableListOf<Placement>()
@@ -296,7 +427,7 @@ class GossipRegistry(
                     val p = pArr.getJSONObject(x)
                     placements.add(Placement(p.getInt("shardIndex"), p.getString("nodeId")))
                 }
-                
+
                 blocks.add(
                     BlockMeta(
                         b.getInt("blockIndex"), b.getInt("plainLength"), b.getInt("shardSize"),
@@ -304,12 +435,14 @@ class GossipRegistry(
                     )
                 )
             }
-            
+
             files[fileId] = FileMeta(
                 fileId, o.getString("fileName"), o.getInt("k"), o.getInt("m"), o.getInt("n"),
                 o.getInt("blockSize"), o.getInt("originalLength"), blocks,
-                incomingUpdatedAt
+                updatedAt = incomingUpdatedAt
             )
+            emit("FILE aceito: fileId=$fileId updatedAt=$incomingUpdatedAt placements=" +
+                blocks.joinToString(" | ") { b -> "bloco${b.blockIndex}:[" + b.placements.joinToString(",") { "${it.shardIndex}->${it.nodeId}" } + "]" })
             scheduleSave()
         }
     }
@@ -334,8 +467,9 @@ class GossipRegistry(
                         migrateShard(file, block, shardIndex, target)
                         block.placements.removeAll { it.shardIndex == shardIndex }
                         block.placements.add(Placement(shardIndex, target.nodeId))
+                        file.updatedAt = System.currentTimeMillis() 
                         bumpScore(target.nodeId, +5)
-                        scheduleSave() // placement mudou — persistir, senão volta pro nó antigo (morto) depois de um restart
+                        scheduleSave() 
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
@@ -351,7 +485,7 @@ class GossipRegistry(
         val fetched = mutableListOf<AvailableShard>()
         for (p in alivePlacements.take(file.k)) {
             val bytes = if (p.nodeId == selfNodeId) {
-                null 
+                null
             } else {
                 val peer = peers[p.nodeId] ?: continue
                 peer.transport.getShard(ShardKeys.of(file.fileId, block.blockIndex, p.shardIndex))
