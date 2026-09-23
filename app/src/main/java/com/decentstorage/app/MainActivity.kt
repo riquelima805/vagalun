@@ -61,6 +61,7 @@ import com.decentstorage.app.network.webrtc.SignalingClient
 import com.decentstorage.app.network.webrtc.WebRtcManager
 import com.decentstorage.app.storage.DeviceStorage
 import com.decentstorage.app.wallet.AnchorStorageClient
+import com.decentstorage.app.wallet.EpochPayoutClient
 import com.decentstorage.app.wallet.SolanaWallet
 import com.decentstorage.app.work.DailyClaimWorker
 import kotlinx.coroutines.CoroutineScope
@@ -983,6 +984,8 @@ class MainActivity : ComponentActivity() {
                     WalletScreen(
                         walletAddress = walletAddress,
                         wallet = wallet,
+                        anchorClient = anchorClient,
+                        signalingUrl = selfSignalingUrl,
                         scope = scope,
                         onLog = { log(it) },
                         onShowSeed = { seedPhrase }
@@ -1936,6 +1939,8 @@ fun WalletOnboardingScreen(onSeedReady: (String) -> Unit) {
 fun WalletScreen(
     walletAddress: String,
     wallet: SolanaWallet?,
+    anchorClient: AnchorStorageClient?,
+    signalingUrl: String,
     scope: CoroutineScope,
     onLog: (String) -> Unit,
     onShowSeed: () -> String,
@@ -1943,7 +1948,61 @@ fun WalletScreen(
 ) {
     var showSeed by remember { mutableStateOf(false) }
     var balanceLamports by remember { mutableStateOf<Long?>(null) }
+    var claiming by remember { mutableStateOf(false) }
     val context = LocalContext.current
+
+    // Botão de teste: faz manualmente o mesmo que o DailyClaimWorker faz
+    // sozinho a cada 24h (época atual + anterior), sem precisar esperar
+    // o WorkManager disparar.
+    fun claimBaseUrl(): String? {
+        if (signalingUrl.isBlank()) return null
+        return when {
+            signalingUrl.startsWith("wss://") -> "https://" + signalingUrl.removePrefix("wss://").substringBefore("/")
+            signalingUrl.startsWith("ws://") -> "http://" + signalingUrl.removePrefix("ws://").substringBefore("/")
+            else -> null
+        }
+    }
+
+    fun claimEpochNow() {
+        val client = anchorClient
+        val base = claimBaseUrl()
+        if (client == null || wallet == null) { onLog("Carteira ainda não carregou"); return }
+        if (base == null) { onLog("Sem signalingUrl configurada — conecte a um relay primeiro"); return }
+
+        scope.launch(Dispatchers.IO) {
+            claiming = true
+            try {
+                val payoutClient = EpochPayoutClient(base)
+                val pubkey = wallet.publicKey.toBase58()
+                val weekSeconds = 7L * 24 * 60 * 60
+                val currentEpochId = System.currentTimeMillis() / 1000L / weekSeconds
+                var achouAlgo = false
+
+                for (epochId in listOf(currentEpochId, currentEpochId - 1)) {
+                    val proof = try {
+                        payoutClient.fetchProof(epochId, pubkey)
+                    } catch (e: Exception) {
+                        onLog("Época $epochId: erro ao buscar proof (${e.message})")
+                        null
+                    } ?: continue
+
+                    achouAlgo = true
+                    val sig = client.claimEpoch(proof.epochId, proof.amountLamports, proof.proof)
+                    if (sig.startsWith("ERRO")) {
+                        onLog("Época $epochId: claim falhou — $sig")
+                    } else {
+                        onLog("Época $epochId: claim OK, ${proof.amountLamports} lamports, tx $sig")
+                        withContext(Dispatchers.IO) { balanceLamports = wallet.getBalanceLamports() }
+                    }
+                }
+                if (!achouAlgo) onLog("Sem payout pendente nessa época nem na anterior pra essa wallet")
+            } catch (e: Exception) {
+                onLog("Falha no claim manual: ${e.message}")
+            } finally {
+                claiming = false
+            }
+        }
+    }
 
     suspend fun refreshBalance() {
         try {
@@ -2005,6 +2064,22 @@ fun WalletScreen(
                 Icon(Icons.Filled.Receipt, contentDescription = null, tint = VagalunColors.red)
                 Spacer(Modifier.width(VagalunSpacing.small))
                 Text("Receber", color = VagalunColors.red, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        Button(
+            onClick = { claimEpochNow() },
+            enabled = !claiming,
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = VagalunColors.red),
+            shape = VagalunShapes.small
+        ) {
+            if (claiming) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+            } else {
+                Icon(Icons.Filled.Redeem, contentDescription = null, tint = Color.White)
+                Spacer(Modifier.width(VagalunSpacing.small))
+                Text("Reivindicar época agora (teste)", color = Color.White, fontWeight = FontWeight.Bold)
             }
         }
 
