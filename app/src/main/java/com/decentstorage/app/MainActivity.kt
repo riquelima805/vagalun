@@ -55,6 +55,7 @@ import androidx.navigation.compose.rememberNavController
 import com.decentstorage.app.crypto.KeyManager
 import com.decentstorage.app.network.GossipRegistry
 import com.decentstorage.app.network.ShardRequestHandler
+import com.decentstorage.app.network.EdgeReplicator
 import com.decentstorage.app.network.ShardServer
 import com.decentstorage.app.network.webrtc.RelayTransport
 import com.decentstorage.app.network.webrtc.SignalingClient
@@ -636,6 +637,8 @@ class MainActivity : ComponentActivity() {
         val reqHandler = ShardRequestHandler(nodeId, selfCapacityBytes, selfDataDir!!, applicationContext) { gossipPayload ->
             registry?.handleIncomingGossip(gossipPayload) ?: JSONObject()
         }
+        // Réplica de borda peer a peer (pedida pelo gateway): baixa de outro celular, confere hash, grava.
+        val edgeReplicator = EdgeReplicator({ registry }, reqHandler) { onLog(it) }
 
         val sc = SignalingClient(
             signalingUrl,
@@ -687,12 +690,23 @@ class MainActivity : ComponentActivity() {
         }
 
         sc.onRelayRequest = { from, requestId, header, payload ->
-            val (respHeader, respPayload) = try {
-                reqHandler.handle(header, payload)
-            } catch (e: Exception) {
-                JSONObject().put("ok", false).put("error", e.message ?: "erro") to null
+            if (header.optString("op") == EdgeReplicator.OP) {
+                // Só aceita ordem de réplica vinda do gateway (nodeId de infra). Responde depois,
+                // de outra thread, pra não travar o WebSocket do signaling.
+                if (!from.startsWith("gateway")) {
+                    sc.sendRelayResponse(from, requestId,
+                        JSONObject().put("ok", false).put("code", "forbidden").put("error", "só o gateway pode pedir réplica"), null)
+                } else {
+                    edgeReplicator.handleAsync(header) { rh, rp -> sc.sendRelayResponse(from, requestId, rh, rp) }
+                }
+            } else {
+                val (respHeader, respPayload) = try {
+                    reqHandler.handle(header, payload)
+                } catch (e: Exception) {
+                    JSONObject().put("ok", false).put("error", e.message ?: "erro") to null
+                }
+                sc.sendRelayResponse(from, requestId, respHeader, respPayload)
             }
-            sc.sendRelayResponse(from, requestId, respHeader, respPayload)
         }
 
         sc.connect()
