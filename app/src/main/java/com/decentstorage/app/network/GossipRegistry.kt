@@ -96,8 +96,10 @@ class GossipRegistry(
         val domain: String,
         val ownerPubkeyB58: String,
         val routes: List<SiteRoute>,
-        val signatureB64: String,
-        val updatedAt: Long
+        val signatureB64: String,   // v1 (legado) — a única, quando version == 0
+        val updatedAt: Long,
+        val version: Long = 0,      // 0 = manifesto v1; >= 1 = v2 (assinado, estritamente crescente)
+        val signatureV2B64: String = ""
     )
 
     private val sites = ConcurrentHashMap<String, SiteMeta>()
@@ -217,9 +219,8 @@ class GossipRegistry(
         return "$domain\n$body"
     }
 
-    private fun verifySiteSignature(domain: String, ownerPubkeyB58: String, routes: List<SiteRoute>, signatureB64: String): Boolean {
+    private fun verifyEd25519(message: ByteArray, signatureB64: String, ownerPubkeyB58: String): Boolean {
         return try {
-            val message = canonicalManifest(domain, routes).toByteArray(Charsets.UTF_8)
             val sig = Base64.getDecoder().decode(signatureB64)
             val pubkeyBytes = Base58.decode(ownerPubkeyB58)
             val spec = EdDSANamedCurveTable.getByName(EdDSANamedCurveTable.ED_25519)
@@ -233,8 +234,56 @@ class GossipRegistry(
         }
     }
 
-    
+    private fun verifySiteSignature(domain: String, ownerPubkeyB58: String, routes: List<SiteRoute>, signatureB64: String): Boolean {
+        val message = canonicalManifest(domain, routes).toByteArray(Charsets.UTF_8)
+        return verifyEd25519(message, signatureB64, ownerPubkeyB58)
+    }
+
+    // ---- Manifesto v2 (idêntico a sever/chain/siteManifest.js, byte a byte) ----
+    // Corrige 3 furos do v1: ordem (localeCompare no JS x sortedBy aqui divergiam), '|' ambíguo
+    // e fileKey/versão fora da assinatura.
+    private val domainV2Regex = Regex("^[a-z0-9.-]{3,100}$")
+
+    private fun validDomainV2(d: String): Boolean =
+        domainV2Regex.matches(d) && !d.startsWith(".") && !d.startsWith("-") &&
+            !d.endsWith(".") && !d.endsWith("-") && !d.contains("..")
+
+    /** Ordem por bytes UTF-8 sem sinal — a mesma do Buffer.compare do Node. */
+    private fun cmpUtf8(a: String, b: String): Int {
+        val x = a.toByteArray(Charsets.UTF_8)
+        val y = b.toByteArray(Charsets.UTF_8)
+        val n = minOf(x.size, y.size)
+        for (i in 0 until n) {
+            val d = (x[i].toInt() and 0xff) - (y[i].toInt() and 0xff)
+            if (d != 0) return d
+        }
+        return x.size - y.size
+    }
+
+    /** null => manifesto inválido (campo com '|' ou quebra de linha, rota duplicada, domínio/versão ruins). */
+    fun canonicalManifestV2(domain: String, version: Long, routes: List<SiteRoute>): String? {
+        if (!validDomainV2(domain) || version < 1) return null
+        val seen = HashSet<String>()
+        val lines = ArrayList<String>()
+        for (r in routes.sortedWith { a, b -> cmpUtf8(a.path, b.path) }) {
+            for (f in listOf(r.path, r.fileId, r.contentType, r.fileKeyB64)) {
+                if (f.contains('\n') || f.contains('|')) return null
+            }
+            if (!seen.add(r.path)) return null
+            lines.add("${r.path}|${r.fileId}|${r.contentType}|${r.fileKeyB64}")
+        }
+        return (listOf("vagalun-site-v2", domain, version.toString()) + lines).joinToString("\n")
+    }
+
+    private fun verifySiteSignatureV2(domain: String, ownerPubkeyB58: String, version: Long, routes: List<SiteRoute>, signatureV2B64: String): Boolean {
+        val message = canonicalManifestV2(domain, version, routes)?.toByteArray(Charsets.UTF_8) ?: return false
+        return verifyEd25519(message, signatureV2B64, ownerPubkeyB58)
+    }
+
     fun registerSite(domain: String, ownerPubkeyB58: String, routes: List<SiteRoute>, signatureB64: String): Boolean {
+        val prev = sites[domain]
+        // dono pinado: ninguém "re-registra" um domínio com outra chave; e v2 nunca volta pra v1
+        if (prev != null && (prev.ownerPubkeyB58 != ownerPubkeyB58 || prev.version > 0)) return false
         if (!verifySiteSignature(domain, ownerPubkeyB58, routes, signatureB64)) return false
         val candidate = SiteMeta(domain, ownerPubkeyB58, routes, signatureB64, System.currentTimeMillis())
         sites[domain] = candidate
@@ -329,6 +378,7 @@ class GossipRegistry(
                     .put("domain", s.domain).put("ownerPubkeyB58", s.ownerPubkeyB58)
                     .put("routes", routesArr).put("signatureB64", s.signatureB64)
                     .put("updatedAt", s.updatedAt)
+                    .put("version", s.version).put("signatureV2B64", s.signatureV2B64)
             )
         }
         return arr
@@ -339,9 +389,28 @@ class GossipRegistry(
         for (i in 0 until arr.length()) {
             val o = arr.getJSONObject(i)
             val domain = o.getString("domain")
+            val ownerPubkeyB58 = o.getString("ownerPubkeyB58")
             val incomingUpdatedAt = o.optLong("updatedAt", 0)
+            val incomingVersion = o.optLong("version", 0)          // 0/ausente = manifesto v1 (legado)
+            val signatureB64 = o.optString("signatureB64", "")
+            val signatureV2B64 = o.optString("signatureV2B64", "")
             val existing = sites[domain]
-            if (existing != null && existing.updatedAt >= incomingUpdatedAt) continue
+
+            if (existing != null) {
+                // 1) dono pinado (TOFU local; vira "dono segundo a chain" quando o resolver on-chain entrar)
+                if (existing.ownerPubkeyB58 != ownerPubkeyB58) {
+                    emit("SITE recusado ($domain): dono diferente do que já conhecemos")
+                    continue
+                }
+                if (incomingVersion > 0) {
+                    // 2) anti-rollback: v2 só avança
+                    if (existing.version >= incomingVersion) continue
+                } else {
+                    // 3) anti-downgrade: depois de ter v2, v1 nunca mais; entre v1s, vale o updatedAt de sempre
+                    if (existing.version > 0) continue
+                    if (existing.updatedAt >= incomingUpdatedAt) continue
+                }
+            }
 
             val routesArr = o.getJSONArray("routes")
             val routes = mutableListOf<SiteRoute>()
@@ -349,11 +418,14 @@ class GossipRegistry(
                 val r = routesArr.getJSONObject(j)
                 routes.add(SiteRoute(r.getString("path"), r.getString("fileId"), r.getString("contentType"), r.optString("fileKeyB64", "")))
             }
-            val ownerPubkeyB58 = o.getString("ownerPubkeyB58")
-            val signatureB64 = o.getString("signatureB64")
-            if (!verifySiteSignature(domain, ownerPubkeyB58, routes, signatureB64)) continue // manifesto forjado/corrompido: ignora
+            val valid = if (incomingVersion > 0) {
+                signatureV2B64.isNotEmpty() && verifySiteSignatureV2(domain, ownerPubkeyB58, incomingVersion, routes, signatureV2B64)
+            } else {
+                signatureB64.isNotEmpty() && verifySiteSignature(domain, ownerPubkeyB58, routes, signatureB64)
+            }
+            if (!valid) continue // manifesto forjado/corrompido: ignora
 
-            sites[domain] = SiteMeta(domain, ownerPubkeyB58, routes, signatureB64, incomingUpdatedAt)
+            sites[domain] = SiteMeta(domain, ownerPubkeyB58, routes, signatureB64, incomingUpdatedAt, incomingVersion, signatureV2B64)
             scheduleSave()
         }
     }
