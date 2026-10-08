@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Paleta Vagalun Browser: vermelho / creme / branco -->
+
+    <!-- Vermelhos -->
+    <color name="vgl_vermelho_escuro">#7A1B20</color>
+    <color name="vgl_vermelho_primario">#B3272D</color>
+    <color name="vgl_vermelho_medio">#C64A45</color>
+    <color name="vgl_vermelho_claro">#E7A6A2</color>
+    <color name="vgl_vermelho_claríssimo">#F3D3CF</color>
+
+    <!-- Creme -->
+    <color name="vgl_creme_escuro">#E8DAC0</color>
+    <color name="vgl_creme">#F3E9D4</color>
+    <color name="vgl_creme_claro">#FBF4E7</color>
+
+    <!-- Branco / neutros -->
+    <color name="vgl_branco">#FFFFFF</color>
+    <color name="vgl_texto_principal">#3B2A22</color>
+    <color name="vgl_texto_secundario">#8A7461</color>
+    <color name="vgl_texto_sobre_vermelho">#FFF7F0</color>
+
+    <!-- Debug panel (terminal escuro em tom vinho) -->
+    <color name="vgl_debug_bg">#2A1414</color>
+    <color name="vgl_debug_texto">#F3D9C8</color>
+</resources>

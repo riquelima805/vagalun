@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vagalun Player — Demo</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #050b12;
+      color: #eaf6f4;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    .demo-wrap { max-width: 900px; margin: 0 auto; padding: 48px 20px 80px; }
+    h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+    p.subtitle { opacity: 0.65; font-size: 14px; margin-top: 0; }
+    #player { margin-top: 24px; }
+    .controls-demo { margin-top: 20px; display: flex; gap: 8px; flex-wrap: wrap; }
+    .controls-demo button {
+      background: #0e1c26;
+      color: #eaf6f4;
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 6px;
+      padding: 8px 14px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .controls-demo button:hover { background: #142530; }
+    .p2p-demo {
+      margin-top: 20px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .p2p-demo input {
+      background: #0e1c26;
+      color: #eaf6f4;
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-size: 13px;
+      min-width: 220px;
+    }
+    pre#log {
+      margin-top: 24px;
+      background: #0a1119;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 8px;
+      padding: 12px 14px;
+      font-size: 12px;
+      max-height: 180px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <div class="demo-wrap">
+    <h1>Vagalun Player — demo</h1>
+    <p class="subtitle">Importado direto de <code>src/player.js</code> via ESM (sem build).</p>
+
+    <div id="player"></div>
+
+    <div class="controls-demo">
+      <button id="btn-play">Play</button>
+      <button id="btn-pause">Pause</button>
+      <button id="btn-midroll">Simular mid-roll agora</button>
+      <button id="btn-overlay">Mostrar banner overlay</button>
+    </div>
+
+    <div class="p2p-demo">
+      <input id="gw-origin" placeholder="origem do gateway (https://xxxx.vagalun.shop)" />
+      <input id="gw-fileid" placeholder="fileId" value="cdae1804c2bc9fc50645d03725fb878a" />
+      <button id="btn-load-p2p">Carregar vídeo 100% P2P (manifesto multi-bloco)</button>
+    </div>
+
+    <pre id="log"></pre>
+  </div>
+
+  <script type="module">
+    import VagalunPlayer from './src/player.js';
+
+    const logEl = document.getElementById('log');
+    function log(...args) {
+      logEl.textContent += args.map(a => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ') + '\n';
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    const player = new VagalunPlayer('#player', {
+      sources: [
+        { src: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8', type: 'm3u8' }
+      ],
+      ads: {
+        overlay: {
+          imageUrl: 'https://placehold.co/300x84/1b7a8c/eaf6f4?text=Anuncio',
+          clickUrl: 'https://example.com',
+          showFor: 8,
+          delay: 3
+        }
+      }
+    });
+
+    player.on('*', (event, data) => log(event, data || ''));
+
+    document.getElementById('btn-play').addEventListener('click', () => player.play());
+    document.getElementById('btn-pause').addEventListener('click', () => player.pause());
+    document.getElementById('btn-midroll').addEventListener('click', () => {
+      player.ads.playVideoAd({
+        videoUrl: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
+        skipAfter: 5
+      });
+    });
+    document.getElementById('btn-overlay').addEventListener('click', () => {
+      player.ads.showOverlay({
+        imageUrl: 'https://via.placeholder.com/1280x720',
+        clickUrl: 'https://google.com',
+        showFor: 6
+      });
+    });
+
+    // Modo P2P multi-bloco: source.src = fileId, p2pManifestUrl = bilhete
+    // /p2p/:fileId do gateway (candidatos relay + iv/authTag por bloco).
+    // O engine busca o manifesto (só metadata), depois TODOS os blocos via
+    // WebRTC dos peers, descriptografa e concatena — sem passar a banda do
+    // vídeo pela VPS. Fallback pra /raw/:fileId (HTTP) só entra se o P2P
+    // falhar de ponta a ponta (nenhum candidato, todos os peers offline etc.).
+    document.getElementById('btn-load-p2p').addEventListener('click', () => {
+      const origin = document.getElementById('gw-origin').value.trim().replace(/\/$/, '');
+      const fileId = document.getElementById('gw-fileid').value.trim();
+      if (!origin || !fileId) {
+        log('preenche origem do gateway e fileId primeiro');
+        return;
+      }
+      player.setSources([
+        { src: fileId, type: 'p2p', p2pManifestUrl: `${origin}/p2p/${fileId}` },
+        { src: `${origin}/raw/${fileId}`, type: 'mp4' } // fallback só se o P2P falhar
+      ]);
+    });
+  </script>
+</body>
+</html>

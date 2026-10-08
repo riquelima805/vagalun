@@ -1,0 +1,32 @@
+{
+  "name": "@vagalun/player",
+  "version": "1.0.0",
+  "description": "Player de vídeo embutível do Vagalun — HLS adaptativo, fallback progressivo via Range, multi-source (CDN → nós), e anúncios não-intrusivos com tracking de impressão/clique.",
+  "type": "module",
+  "main": "./dist/vagalun-player.umd.cjs",
+  "module": "./dist/vagalun-player.es.js",
+  "unpkg": "./dist/vagalun-player.iife.js",
+  "exports": {
+    ".": {
+      "import": "./dist/vagalun-player.es.js",
+      "require": "./dist/vagalun-player.umd.cjs"
+    },
+    "./style.css": "./dist/vagalun-player.css"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build:lib": "vite build --config vite.lib.config.js",
+    "build:demo": "vite build --config vite.demo.config.js --outDir dist-demo",
+    "build": "npm run build:lib && npm run build:demo",
+    "preview": "vite preview --outDir dist-demo"
+  },
+  "dependencies": {
+    "hls.js": "^1.5.17"
+  },
+  "devDependencies": {
+    "vite": "^5.4.10"
+  }
+}

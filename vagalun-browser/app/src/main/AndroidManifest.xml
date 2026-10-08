@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <application
+        android:allowBackup="true"
+        android:label="Vagalun Browser"
+        android:icon="@drawable/logo_vagalun"
+        android:roundIcon="@drawable/logo_vagalun"
+        android:usesCleartextTraffic="false">
+
+        <activity
+            android:name=".browser.BrowserActivity"
+            android:exported="true"
+            android:label="Vagalun Browser">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
