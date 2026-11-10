@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <style name="Theme.Vagalun.Splash" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenBackground">#0F0F0E</item>
-        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_logo</item>
-        <item name="windowSplashScreenIconBackgroundColor">#0F0F0E</item>
-        <item name="postSplashScreenTheme">@style/Theme.Vagalun</item>
-    </style>
-</resources>
