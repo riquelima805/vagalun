@@ -21,13 +21,16 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      # Baixa e instala o Gradle 8.7 diretamente na maquina virtual do GitHub
       - name: Setup Gradle 8.7
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.7'
 
-      # Executa o Gradle do sistema (sem depender de gradlew ou wrapper no repositório)
+      # Gera o debug.keystore na raiz para satisfazer a signingConfig 'githubKey'
+      - name: Generate Debug Keystore
+        run: |
+          keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+
       - name: Build Debug APK
         run: gradle assembleDebug
 
