@@ -1,0 +1,243 @@
+package com.decentstorage.app
+
+import androidx.compose.runtime.mutableStateOf
+import java.util.Locale
+
+/**
+ * Idiomas do app: Português (padrão), English e Español.
+ * mode: 0 = automático (segue o idioma do celular), 1 = Português, 2 = English, 3 = Español.
+ * Como `mode` é um estado do Compose, trocar o idioma atualiza a tela na hora.
+ */
+object Lang {
+    private val _mode = mutableStateOf(0)
+    var mode: Int
+        get() = _mode.value
+        set(v) { _mode.value = v.coerceIn(0, 3) }
+
+    /** "pt", "en" ou "es". Idioma do celular que não seja pt/es cai em inglês. */
+    val code: String
+        get() = when (mode) {
+            1 -> "pt"; 2 -> "en"; 3 -> "es"
+            else -> when (Locale.getDefault().language) { "pt" -> "pt"; "es" -> "es"; else -> "en" }
+        }
+
+    val locale: Locale
+        get() = when (code) { "pt" -> Locale("pt", "BR"); "es" -> Locale("es"); else -> Locale.ENGLISH }
+
+    fun modeLabel(m: Int): String = when (m) {
+        1 -> "Português"; 2 -> "English"; 3 -> "Español"; else -> tr("Automático")
+    }
+}
+
+/**
+ * Traduz um texto escrito em português. Sem tradução cadastrada, devolve o próprio texto.
+ * Com argumentos, o texto usa %s / %d (ex.: tr("Nível %d", nivel)).
+ */
+fun tr(pt: String, vararg args: Any?): String {
+    val base = when (Lang.code) {
+        "en" -> TRANSLATIONS[pt]?.first
+        "es" -> TRANSLATIONS[pt]?.second
+        else -> null
+    } ?: pt
+    return if (args.isEmpty()) base else java.lang.String.format(Locale.ROOT, base, *args)
+}
+
+// português -> (inglês, espanhol)
+private val TRANSLATIONS: Map<String, Pair<String, String>> = mapOf(
+    "Guarde seus arquivos com segurança" to ("Keep your files safe" to "Guarda tus archivos con seguridad"),
+    "Ceda espaço e ganhe" to ("Share space and earn" to "Cede espacio y gana"),
+    "Cresça junto com o Brasil" to ("Grow together with Brazil" to "Crece junto con Brasil"),
+    "Seus arquivos ficam divididos e protegidos pela rede, sem depender de uma única empresa." to ("Your files are split up and protected by the network, without depending on a single company." to "Tus archivos se dividen y quedan protegidos por la red, sin depender de una sola empresa."),
+    "Deixe o app ligado e seu celular ajuda a rede. Você recebe recompensas pelo tempo contribuído." to ("Keep the app on and your phone helps the network. You earn rewards for the time you contribute." to "Deja la app encendida y tu celular ayuda a la red. Recibes recompensas por el tiempo que aportas."),
+    "Convide amigos e ganhe mais conforme a rede cresce." to ("Invite friends and earn more as the network grows." to "Invita a tus amigos y gana más a medida que la red crece."),
+    "Pular" to ("Skip" to "Omitir"),
+    "Continuar" to ("Continue" to "Continuar"),
+    "Começar" to ("Get started" to "Empezar"),
+    "Perfil e ajustes" to ("Profile and settings" to "Perfil y ajustes"),
+    "Bom dia" to ("Good morning" to "Buenos días"),
+    "Boa tarde" to ("Good afternoon" to "Buenas tardes"),
+    "Boa noite" to ("Good evening" to "Buenas noches"),
+    "Seus pontos" to ("Your points" to "Tus puntos"),
+    "Nível %d" to ("Level %d" to "Nivel %d"),
+    "Faltam %d pontos para o nível %d" to ("%d points to level %d" to "Faltan %d puntos para el nivel %d"),
+    "Sua rede hoje" to ("Your network today" to "Tu red hoy"),
+    "Nó ativo" to ("Node active" to "Nodo activo"),
+    "Nó desativado" to ("Node paused" to "Nodo desactivado"),
+    "Contribuindo com a rede" to ("Contributing to the network" to "Contribuyendo a la red"),
+    "Ativo agora" to ("Active now" to "Activo ahora"),
+    "Pausado" to ("Paused" to "En pausa"),
+    "Tempo online" to ("Time online" to "Tiempo en línea"),
+    "Nós conectados" to ("Connected nodes" to "Nodos conectados"),
+    "Espaço compartilhado" to ("Shared space" to "Espacio compartido"),
+    "Você pode ceder até %d GB deste aparelho" to ("You can share up to %d GB from this device" to "Puedes ceder hasta %d GB de este dispositivo"),
+    "menos de 1 min" to ("less than 1 min" to "menos de 1 min"),
+    "Na rede" to ("On the network" to "En la red"),
+    "Arquivos" to ("Files" to "Archivos"),
+    "Buscar arquivos" to ("Search files" to "Buscar archivos"),
+    "Espaço usado" to ("Space used" to "Espacio usado"),
+    "%s de 2 GB" to ("%s of 2 GB" to "%s de 2 GB"),
+    "Nenhum arquivo ainda" to ("No files yet" to "Aún no hay archivos"),
+    "Nada encontrado" to ("Nothing found" to "No se encontró nada"),
+    "Enviar arquivo" to ("Upload file" to "Subir archivo"),
+    "Excluir" to ("Delete" to "Eliminar"),
+    "Excluir arquivo?" to ("Delete file?" to "¿Eliminar archivo?"),
+    "Isso encerra o pagamento do contrato e avisa a rede para liberar o espaço." to ("This ends the contract payment and tells the network to free up the space." to "Esto termina el pago del contrato y avisa a la red para liberar el espacio."),
+    "Cancelar" to ("Cancel" to "Cancelar"),
+    "Todos" to ("All" to "Todos"),
+    "Imagens" to ("Images" to "Imágenes"),
+    "Documentos" to ("Documents" to "Documentos"),
+    "Vídeos" to ("Videos" to "Vídeos"),
+    "Seu dinheiro" to ("Your money" to "Tu dinero"),
+    "Carteira" to ("Wallet" to "Billetera"),
+    "Saldo total" to ("Total balance" to "Saldo total"),
+    "Atualizar" to ("Refresh" to "Actualizar"),
+    "Enviar" to ("Send" to "Enviar"),
+    "Receber" to ("Receive" to "Recibir"),
+    "Sacar Pix" to ("Withdraw Pix" to "Retirar Pix"),
+    "Movimentações" to ("Activity" to "Movimientos"),
+    "As recompensas da rede vão aparecer aqui em breve." to ("Network rewards will show up here soon." to "Las recompensas de la red aparecerán aquí pronto."),
+    "Endereço" to ("Address" to "Dirección"),
+    "Copiar" to ("Copy" to "Copiar"),
+    "Chave secreta" to ("Secret key" to "Clave secreta"),
+    "Toque para ocultar" to ("Tap to hide" to "Toca para ocultar"),
+    "Toque para revelar" to ("Tap to reveal" to "Toca para revelar"),
+    "Nunca compartilhe isso com ninguém." to ("Never share this with anyone." to "Nunca compartas esto con nadie."),
+    "Saque via Pix" to ("Pix withdrawal" to "Retiro por Pix"),
+    "Disponível em breve. Estamos finalizando essa etapa para que seus ganhos cheguem direto na sua conta, com segurança." to ("Coming soon. We're finishing this step so your earnings reach your account directly and safely." to "Disponible pronto. Estamos terminando esta etapa para que tus ganancias lleguen directo a tu cuenta, con seguridad."),
+    "Entendi" to ("Got it" to "Entendido"),
+    "carregando..." to ("loading..." to "cargando..."),
+    "≈ %s pontos" to ("≈ %s points" to "≈ %s puntos"),
+    "Endereço copiado" to ("Address copied" to "Dirección copiada"),
+    "Seu progresso" to ("Your progress" to "Tu progreso"),
+    "Missões" to ("Missions" to "Misiones"),
+    "Crie ou restaure sua carteira para acompanhar pontos e missões." to ("Create or restore your wallet to track points and missions." to "Crea o restaura tu billetera para seguir tus puntos y misiones."),
+    "Não consegui carregar seus pontos agora." to ("Couldn't load your points right now." to "No pude cargar tus puntos ahora."),
+    "%d pts para o nível %d" to ("%d pts to level %d" to "%d pts para el nivel %d"),
+    "Convide amigos" to ("Invite friends" to "Invita a tus amigos"),
+    "Você ganha pontos quando um amigo fica ativo na rede." to ("You earn points when a friend becomes active on the network." to "Ganas puntos cuando un amigo se activa en la red."),
+    "Seu código: %s" to ("Your code: %s" to "Tu código: %s"),
+    "Copiar código" to ("Copy code" to "Copiar código"),
+    "Compartilhar no WhatsApp" to ("Share on WhatsApp" to "Compartir en WhatsApp"),
+    "Entre na Vagalun e ganhe com o espaço do seu celular. Meu código: %s" to ("Join Vagalun and earn with your phone's spare space. My code: %s" to "Únete a Vagalun y gana con el espacio de tu celular. Mi código: %s"),
+    "Compartilhar" to ("Share" to "Compartir"),
+    "Enviar o primeiro arquivo" to ("Upload your first file" to "Sube tu primer archivo"),
+    "concluída" to ("completed" to "completada"),
+    "envie um arquivo para a rede" to ("send a file to the network" to "envía un archivo a la red"),
+    "Ficar 10 h online" to ("Stay online for 10 h" to "Estar 10 h en línea"),
+    "%s de 10h" to ("%s of 10h" to "%s de 10h"),
+    "Convidar 3 amigos" to ("Invite 3 friends" to "Invitar a 3 amigos"),
+    "em breve" to ("coming soon" to "próximamente"),
+    "Pontos não são dinheiro. A conversão será anunciada à parte." to ("Points are not money. Any conversion will be announced separately." to "Los puntos no son dinero. La conversión se anunciará por separado."),
+    "Ranking" to ("Ranking" to "Ranking"),
+    "Concluída" to ("Completed" to "Completada"),
+    " (você)" to (" (you)" to " (tú)"),
+    "Configurações" to ("Settings" to "Ajustes"),
+    "Conta" to ("Account" to "Cuenta"),
+    "Idioma" to ("Language" to "Idioma"),
+    "Rede" to ("Network" to "Red"),
+    "Sincronizar só no Wi-Fi" to ("Sync on Wi-Fi only" to "Sincronizar solo con Wi-Fi"),
+    "Manter ativo em segundo plano" to ("Keep running in background" to "Mantener activo en segundo plano"),
+    "Aparência" to ("Appearance" to "Apariencia"),
+    "Tema" to ("Theme" to "Tema"),
+    "Automático" to ("Automatic" to "Automático"),
+    "Claro" to ("Light" to "Claro"),
+    "Escuro" to ("Dark" to "Oscuro"),
+    "Segurança" to ("Security" to "Seguridad"),
+    "Backup da carteira" to ("Wallet backup" to "Respaldo de la billetera"),
+    "Ajuda" to ("Help" to "Ayuda"),
+    "Limpar cache" to ("Clear cache" to "Limpiar caché"),
+    "Remove só temporários; seus arquivos não são apagados" to ("Removes temporary files only; your files are not deleted" to "Elimina solo temporales; tus archivos no se borran"),
+    "Vagalun · versão beta" to ("Vagalun · beta version" to "Vagalun · versión beta"),
+    "Início" to ("Home" to "Inicio"),
+    "Voltar" to ("Back" to "Volver"),
+    "Enviar Arquivo" to ("Upload file" to "Subir archivo"),
+    "Remover" to ("Remove" to "Quitar"),
+    "Privacidade" to ("Privacy" to "Privacidad"),
+    "Tempo de armazenamento" to ("Storage time" to "Tiempo de almacenamiento"),
+    "%d dias" to ("%d days" to "%d días"),
+    "Personalizado" to ("Custom" to "Personalizado"),
+    "Dias" to ("Days" to "Días"),
+    "Resumo" to ("Summary" to "Resumen"),
+    "Tamanho" to ("Size" to "Tamaño"),
+    "Custo estimado" to ("Estimated cost" to "Costo estimado"),
+    "Você recebe (após taxas)" to ("You receive (after fees)" to "Recibes (después de comisiones)"),
+    "Enviando..." to ("Sending..." to "Enviando..."),
+    "Enviar para a rede" to ("Send to the network" to "Enviar a la red"),
+    "Seu arquivo será distribuído entre os nós da rede." to ("Your file will be distributed across the network's nodes." to "Tu archivo se distribuirá entre los nodos de la red."),
+    "Público" to ("Public" to "Público"),
+    "Qualquer pessoa pode acessar" to ("Anyone can access" to "Cualquiera puede acceder"),
+    "Compartilhado" to ("Shared" to "Compartido"),
+    "Apenas com link" to ("Link only" to "Solo con enlace"),
+    "Privado" to ("Private" to "Privado"),
+    "Criptografado de ponta a ponta" to ("End-to-end encrypted" to "Cifrado de extremo a extremo"),
+    "Buscando shards na rede..." to ("Fetching shards from the network..." to "Buscando fragmentos en la red..."),
+    "Denunciar" to ("Report" to "Denunciar"),
+    "Sua chave, sua carteira Solana." to ("Your key, your Solana wallet." to "Tu clave, tu billetera Solana."),
+    "Criar novo cofre" to ("Create new vault" to "Crear nueva bóveda"),
+    "Já tenho uma seed phrase" to ("I already have a seed phrase" to "Ya tengo una frase semilla"),
+    "Anote as 12 palavras em papel. Sem elas você perde acesso pra sempre." to ("Write the 12 words down on paper. Without them you lose access forever." to "Anota las 12 palabras en papel. Sin ellas pierdes el acceso para siempre."),
+    "Já anotei em local seguro" to ("I've written it down somewhere safe" to "Ya lo anoté en un lugar seguro"),
+    "Restaurar" to ("Restore" to "Restaurar"),
+    "Digite as 12 palavras" to ("Enter the 12 words" to "Escribe las 12 palabras"),
+    "Enviar SOL" to ("Send SOL" to "Enviar SOL"),
+    "Para quem você quer enviar?" to ("Who do you want to send to?" to "¿A quién quieres enviar?"),
+    "Endereço da carteira" to ("Wallet address" to "Dirección de la billetera"),
+    "Nome salvo (opcional)" to ("Saved name (optional)" to "Nombre guardado (opcional)"),
+    "Adicionar um apelido" to ("Add a nickname" to "Agregar un apodo"),
+    "Quanto você quer enviar?" to ("How much do you want to send?" to "¿Cuánto quieres enviar?"),
+    "Máx." to ("Max" to "Máx."),
+    "Mensagem (opcional)" to ("Message (optional)" to "Mensaje (opcional)"),
+    "Deixe uma mensagem" to ("Leave a message" to "Deja un mensaje"),
+    "Você envia" to ("You send" to "Envías"),
+    "Taxa da rede" to ("Network fee" to "Comisión de red"),
+    "Total" to ("Total" to "Total"),
+    "Enviar agora" to ("Send now" to "Enviar ahora"),
+    "Transação segura e criptografada" to ("Secure, encrypted transaction" to "Transacción segura y cifrada"),
+    "Sistema desativado" to ("Node turned off" to "Nodo desactivado"),
+    "Arquivo denunciado" to ("File reported" to "Archivo denunciado"),
+    "Arquivo removido: %s" to ("File removed: %s" to "Archivo eliminado: %s"),
+    "Falha ao abrir: %s" to ("Couldn't open: %s" to "No se pudo abrir: %s"),
+    "Upload ok: %s" to ("Upload complete: %s" to "Subida completa: %s"),
+    "Falha no upload: %s" to ("Upload failed: %s" to "Falló la subida: %s"),
+    "Falha ao carregar mídia: %s" to ("Couldn't load media: %s" to "No se pudo cargar el archivo: %s"),
+    "Cache limpo: %d KB liberados. Seus arquivos na rede não foram tocados." to ("Cache cleared: %d KB freed. Your files on the network were not touched." to "Caché limpiada: %d KB liberados. Tus archivos en la red no fueron tocados."),
+    "Conta on-chain já existia — seguindo normalmente." to ("On-chain account already existed — continuing normally." to "La cuenta on-chain ya existía — continuando normalmente."),
+    "Saldo de SOL insuficiente pra criar a conta on-chain." to ("Not enough SOL to create the on-chain account." to "Saldo de SOL insuficiente para crear la cuenta on-chain."),
+    "Não deu pra criar a conta on-chain: %s" to ("Couldn't create the on-chain account: %s" to "No se pudo crear la cuenta on-chain: %s"),
+    "Conta on-chain criada com sucesso!" to ("On-chain account created!" to "¡Cuenta on-chain creada con éxito!"),
+    "Erro ao iniciar: %s" to ("Startup error: %s" to "Error al iniciar: %s"),
+    "SOL enviado. Assinatura: %s" to ("SOL sent. Signature: %s" to "SOL enviado. Firma: %s"),
+    "Erro ao enviar SOL: %s" to ("Error sending SOL: %s" to "Error al enviar SOL: %s"),
+    "Falha ao consultar saldo: %s" to ("Couldn't fetch balance: %s" to "No se pudo consultar el saldo: %s"),
+    "Suas missões" to ("Your missions" to "Tus misiones"),
+    "%d de %d concluídas" to ("%d of %d completed" to "%d de %d completadas"),
+    "Em breve" to ("Soon" to "Próximamente"),
+    "Quem mais contribui com a rede" to ("Top contributors to the network" to "Quienes más aportan a la red"),
+    "Carregando…" to ("Loading…" to "Cargando…"),
+    "Ranking indisponível agora." to ("Ranking unavailable right now." to "Ranking no disponible ahora."),
+    "Ainda não há ninguém no ranking." to ("Nobody is on the ranking yet." to "Todavía no hay nadie en el ranking."),
+    "Você" to ("You" to "Tú"),
+    "%s online" to ("%s online" to "%s en línea"),
+    "Código de convite (opcional)" to ("Invite code (optional)" to "Código de invitación (opcional)"),
+    "Código de convite" to ("Invite code" to "Código de invitación"),
+    "O código tem 8 letras e números." to ("The code has 8 letters and numbers." to "El código tiene 8 letras y números."),
+    "Foi convidado por alguém?" to ("Were you invited by someone?" to "¿Te invitó alguien?"),
+    "Digite o código do seu amigo. Só dá para usar um código, uma única vez." to ("Enter your friend's code. You can only use one code, once." to "Escribe el código de tu amigo. Solo puedes usar un código, una única vez."),
+    "Aplicar código" to ("Apply code" to "Aplicar código"),
+    "Código aplicado! Seu amigo ganha pontos quando você ficar ativo." to ("Code applied! Your friend earns points once you're active." to "¡Código aplicado! Tu amigo gana puntos cuando estés activo."),
+    "Você já usou um código de convite." to ("You've already used an invite code." to "Ya usaste un código de invitación."),
+    "Código inválido. Ele tem 8 letras e números." to ("Invalid code. It has 8 letters and numbers." to "Código inválido. Tiene 8 letras y números."),
+    "Não encontramos esse código. Confira com seu amigo." to ("We couldn't find that code. Check with your friend." to "No encontramos ese código. Confírmalo con tu amigo."),
+    "Você não pode usar o seu próprio código." to ("You can't use your own code." to "No puedes usar tu propio código."),
+    "Não foi possível aplicar o código." to ("Couldn't apply the code." to "No fue posible aplicar el código."),
+    "Muitas tentativas. Tente de novo mais tarde." to ("Too many attempts. Try again later." to "Demasiados intentos. Inténtalo más tarde."),
+    "Sem conexão com o servidor. Tente de novo em instantes." to ("Can't reach the server. Try again shortly." to "Sin conexión con el servidor. Inténtalo en unos instantes."),
+    "Ganhe %d pontos por cada amigo que ficar ativo na rede." to ("Earn %d points for each friend who becomes active on the network." to "Gana %d puntos por cada amigo que se active en la red."),
+    "Amigos" to ("Friends" to "Amigos"),
+    "Ativos" to ("Active" to "Activos"),
+    "Pontos" to ("Points" to "Puntos"),
+    "Amigos aguardando ativação: %d (precisam de %d min online)" to ("Friends waiting to activate: %d (need %d min online)" to "Amigos esperando activación: %d (necesitan %d min en línea)"),
+    "Amigos aguardando ativação: %d" to ("Friends waiting to activate: %d" to "Amigos esperando activación: %d"),
+    "%d de %d amigos ativos" to ("%d of %d friends active" to "%d de %d amigos activos"),
+    "Carteira ainda não carregou" to ("Wallet hasn't loaded yet" to "La billetera aún no cargó"),
+)
