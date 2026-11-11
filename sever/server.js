@@ -7,38 +7,29 @@ const net = require('net');
 const dns = require('dns').promises;
 const WebSocket = require('ws');
 const points = require('./points');
+const { createReferral } = require('./referral');
 const proofPoints = require('./proofPoints');
 const geoip = require('geoip-lite');
 const nodeCapacity = require('./nodeCapacity');
 const { handleEpochRoutes } = require('./epochApi');
 
-// Nota: TLS deste server (VPS) é resolvido por domínio fixo + reverse
-// proxy/cert normal (fora deste arquivo). O TODO(tls-node) pendente é do
-// lado do PC node (index.js), que serve HTTP/RTMP/HTTP-FLV público sem
-// domínio fixo — ver comentário lá.
+
 const PORT = process.env.PORT || 8787;
 const ADMIN_TOKEN = process.env.SIGNALING_ADMIN_TOKEN || null;
 
-// ============ RATE LIMIT BÁSICO (endpoints públicos) ============
-// probe-turn/probe-tcp, heartbeat e o `signal` do WebSocket são acessíveis
-// sem login nenhum (por design — é assim que celular/nó de PC descobrem e
-// negociam WebRTC). Sem limite, dá pra: floodar a VPS de probes UDP/TCP
-// (amplificação/gasto de banda), spammar o directory de heartbeats, ou
-// floodar `signal` pra travar o peer alvo. Implementação simples de janela
-// deslizante em memória por chave (IP, ou IP+nodeId pro signal) — dá conta
-// do recado sem precisar de Redis pra um single-process como este.
-const rateBuckets = new Map(); // key -> array de timestamps (ms) das últimas requisições
+
+const rateBuckets = new Map(); 
 function rateLimited(key, limit, windowMs) {
   const now = Date.now();
   let arr = rateBuckets.get(key);
   if (!arr) { arr = []; rateBuckets.set(key, arr); }
-  // remove entradas fora da janela
+ 
   while (arr.length && now - arr[0] > windowMs) arr.shift();
-  if (arr.length >= limit) return true; // estourou o limite
+  if (arr.length >= limit) return true; 
   arr.push(now);
   return false;
 }
-// limpeza periódica pra não vazar memória com IPs que só apareceram uma vez
+
 setInterval(() => {
   const now = Date.now();
   for (const [key, arr] of rateBuckets) {
@@ -62,52 +53,17 @@ function rateLimitResponse(res) {
   res.end(JSON.stringify({ ok: false, error: 'rate limit excedido, tenta de novo em alguns segundos' }));
 }
 
-// ============ NÓS DE INFRAESTRUTURA (gateway/publisher) ============
-// gateway-1 (sever/gateway/content.js) e hosting-platform-<timestamp>
-// (hosting/gateway-client/publish.cjs) se registram aqui só pra poder
-// mandar `relay` DIRETO a um nodeId específico (celular real) — eles não
-// são peers de verdade, não sabem responder handshake WebRTC (signal),
-// e não devem aparecer na descoberta de peers de ninguém. Sem esse
-// filtro, cada registro/desconexão de infra vira peer_joined/peer_left
-// pra TODOS os celulares reais conectados, que tentam negociar WebRTC
-// com eles e ficam travando em timeout à toa (era a causa do bug
-// "timeout esperando resposta de gateway-1").
+
 const INFRA_NODE_IDS = new Set(
   (process.env.GATEWAY_RELAY_NODE_ID || 'gateway-1').split(',').map((s) => s.trim()).filter(Boolean)
 );
-// FIX: "viewer-*" entrou aqui junto com gateway/publisher/hosting-platform.
-// É o nodeId que o navegador do VISITANTE do vídeo usa (vagalun-player.iife.js,
-// gerado por sessão, sem wallet) pra trocar 'signal' (offer/answer/ICE) com o
-// celular via WebRTC. Sem essa exceção, dois problemas em cascata:
-//  1) o anti-hijack de 'register' (verifyAndBindOwnership, mais abaixo) exigia
-//     assinatura Ed25519 de um visitante anônimo, que nunca manda pubkey/sig —
-//     rejeitava com 'register_unauthorized', o player nunca trata esse erro e
-//     segue tentando negociar mesmo assim; como selfNodeId nunca fica setado
-//     no servidor pra essa conexão, o 'signal' (offer) nunca chega no celular,
-//     o player estoura timeout e cai no fallback HTTP — pra 100% dos
-//     visitantes, sempre. Era exatamente o bug "P2P nunca conecta" reportado.
-//  2) mesmo só resolvendo (1) à parte, sem incluir viewer aqui em
-//     isInfraNodeId ele ainda apareceria na lista 'peers'/'peer_joined' pra
-//     celulares reais (ver case 'register' e MainActivity.onPeerList/
-//     onPeerJoined no app) — que tentariam abrir handshake WebRTC com o
-//     navegador do visitante à toa, achando que é mais um peer de
-//     armazenamento. Colocando no mesmo balde de infra resolve os dois de
-//     uma vez, com a mesma lógica que já existe pra gateway/publisher.
+
 function isInfraNodeId(nodeId) {
-  // "browser-*" é o mesmo caso de "viewer-*": visitante anônimo do app
-  // Android (BrowserActivity.kt gera "browser-"+random), sem wallet, que
-  // nunca manda pubkey/sig no register — sofria o mesmo register_unauthorized
-  // e caía pro fallback CDN pra 100% das visitas.
+ 
   return INFRA_NODE_IDS.has(nodeId) || nodeId.startsWith('publisher-') || nodeId.startsWith('hosting-platform-') || nodeId.startsWith('gateway-') || nodeId.startsWith('viewer-') || nodeId.startsWith('browser-');
 }
 
-// ============ MONITORAMENTO DE NÓS ============
-// O registry original só guardava Map<nodeId, ws> — quando o celular
-// desconectava, a informação sumia na hora (sem histórico, sem uptime,
-// sem "quantos nós já passaram pela rede"). Agora guardamos:
-//  - connectedAt por nó ativo (pra calcular uptime em tempo real)
-//  - histórico de sessões encerradas (connectedAt/disconnectedAt/duration),
-//    persistido em disco, últimas SESSIONS_HISTORY_MAX
+
 const dataDir = path.join(__dirname, 'data');
 const sessionsFile = path.join(dataDir, 'node-sessions.json');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
@@ -117,17 +73,6 @@ let closedSessions = []; // [{ nodeId, connectedAt, disconnectedAt, durationSec 
 const connectedAt = new Map(); // nodeId -> ISO timestamp da conexão atual
 const knownNodeIds = new Set(); // todo nodeId que já se registrou alguma vez (ativo ou não)
 
-// ============ POSSE DE nodeId (anti-hijack/anti-spoof) ============
-// nodeId -> pubkey (base58) que provou posse desse nodeId assinando ele
-// com a chave da wallet (mesmo esquema já usado pro sistema de pontos:
-// points.verifyOwnership). O PRIMEIRO a provar posse de um nodeId "trava"
-// ele pra aquela pubkey; qualquer register/heartbeat futuro pra esse mesmo
-// nodeId PRECISA vir assinado pela mesma wallet, senão é rejeitado.
-// Sem isso, tanto o `register` do WebSocket quanto o `/directory/heartbeat`
-// aceitavam qualquer nodeId auto-declarado sem prova nenhuma — bastava
-// alguém mandar `{type:'register', nodeId:'<nodeId de outra pessoa>'}` pra
-// sequestrar sessão/relay daquele nó, ou floodar o directory de PC nodes
-// com entradas falsas.
 const nodeOwners = new Map();
 
 // Janela de tolerância do `seq` assinado no heartbeat (anti-replay). Generosa
@@ -180,14 +125,7 @@ function verifyAndBindOwnership(nodeId, pubkey, sig, signedMessage) {
   }
   let valid = false;
   try {
-    // FIX: o nó de PC NÃO assina o nodeId cru no heartbeat — ele assina
-    // `heartbeat:<nodeId>:<seq>` (ver signHeartbeat no index.js do node).
-    // Como aqui só se verificava contra o nodeId, TODO heartbeat caía em
-    // assinatura inválida -> 401 -> nó nunca entrava no diretório, nunca
-    // recebia relayAssignments e nunca acumulava pontos de banda.
-    // `signedMessage` deixa cada chamador dizer o que foi realmente assinado;
-    // sem ele o comportamento antigo (mensagem = nodeId) continua valendo,
-    // que é o caso do `register` via WebSocket.
+   
     valid = points.verifyOwnership(pubkey, signedMessage || nodeId, sig);
   } catch (_) {
     valid = false;
@@ -249,45 +187,16 @@ function readJsonBody(req, maxBytes = 1024 * 16) {
 // verdade se a lista vier vazia ou nenhum nó de PC responder.
 const DIRECTORY_TTL_MS = Number(process.env.DIRECTORY_TTL_MS || 45_000); // sem heartbeat por esse tempo = considerado offline
 
-// Segredo compartilhado só com o backend PHP (nunca com o publisher nem
-// com o player) — é o que autentica "esse streamPath pode ser publicado
-// agora" antes do server central mintar uma URL de push assinada pro
-// node escolhido. Sem isso configurado, /live/push-url fica desligado
-// (fail-closed) em vez de aceitar qualquer pedido sem checagem.
+
 const LIVE_PUSH_SECRET = process.env.LIVE_PUSH_SECRET || null;
 const pcDirectory = new Map(); // nodeId (do diretório) -> { ...info, lastSeen }
 
-// ------------------------------------------------------------------
-// Item 8 (+ fan-out multi-node): "quem serve qual streamPath agora" —
-// construído em cima do mesmo heartbeat que já existia. A diferença é
-// que agora uma live pode ter VÁRIOS nodes servindo ela ao mesmo tempo
-// (a origem que recebeu o RTMP do publisher + N nodes "relay" que
-// puxaram o mesmo stream pra aguentar mais espectadores). Do ponto de
-// vista de cada node isso não muda nada: um relay simplesmente também
-// publica localmente (via ffmpeg pull->push, ver relay.js do node de
-// PC) e reporta no heartbeat exatamente como um publisher normal — o
-// server central é quem sabe que existe mais de um.
-//
-// streamPath -> { servers: Map<nodeId, { nodeId, publicHost, mediaHttpPort, kbps, lastHealthAt }> }
+
+
 const liveStreamIndex = new Map();
 
-// nodeId -> { streamPath, pullUrl, assignedAt } — instrução pendente
-// "puxe essa live de outro node e republique localmente". É entregue
-// pro node de PC dentro da PRÓPRIA resposta do heartbeat (sem precisar
-// de conexão nova) e some sozinha quando ele começar a reportar aquele
-// streamPath (ou depois de RELAY_ASSIGN_TTL_MS sem confirmar).
 const relayAssignments = new Map();
 const RELAY_ASSIGN_TTL_MS = 90_000;
-// Antes, ensureRelayCapacity só era chamada de dentro de bestEntryForWatcher
-// — ou seja, só crescia pra um 2º node quando um ESPECTADOR pedia a live e
-// o único node servindo já estava sem folga. Numa live com poucos/zero
-// espectadores (exatamente o teste "subi node1, subi node2, derrubei
-// node1"), isso nunca disparava: node2 ficava ocioso pra sempre, nunca
-// virava réplica de fato, e quando node1 caía não tinha pra quem migrar.
-// MIN_LIVE_REPLICAS faz a replicação ser proativa (por resiliência), não
-// só reativa (por capacidade): toda vez que o índice de uma live é
-// atualizado e ela tem menos servers que isso, tenta puxar mais um node
-// ocioso — independente de ter espectador pedindo ou não.
 const MIN_LIVE_REPLICAS = 2;
 
 // streamPath -> Set<ws> de players que pediram pra saber onde esse
@@ -674,6 +583,20 @@ function probeTcpReachability(host, port, timeoutMs = 3000) {
   });
 }
 
+// ---- Convites (referral.js): rotas /i/, /referral/ e /admin/summary ----
+// Sem POINTS_API_URL o referral vale "na hora" (modo dev, sem antifraude). Como ele roda
+// DENTRO deste servidor, aponta pra si mesmo por padrão: o amigo só conta depois de ficar
+// online de verdade (uptimeSeconds do /points/<pubkey> abaixo).
+if (!process.env.POINTS_API_URL) process.env.POINTS_API_URL = `http://127.0.0.1:${PORT}`;
+let referral = null;
+try {
+  referral = createReferral();
+} catch (err) {
+  // Se o serviço de convites não subir (ex.: sem permissão no DATA_FILE), o signaling sobe normal sem ele.
+  console.error('[referral] desativado — não foi possível iniciar:', err.message);
+}
+const REFERRAL_ROUTE_RE = /^\/(i\/|referral\/|admin\/summary)/;
+
 const httpServer = http.createServer((req, res) => {
   // Preflight CORS PRECISA ser respondido antes de qualquer checagem de rota
   // ou de admin token — senão o navegador nunca chega a mandar a requisição
@@ -684,6 +607,22 @@ const httpServer = http.createServer((req, res) => {
   // ao signaling server" no painel, quando VITE_SIGNALING_ADMIN_TOKEN está
   // configurado).
   if (req.method === 'OPTIONS') return jsonResponse(res, 204, {});
+
+  // ---- Convites: só as rotas do referral são desviadas; todo o resto segue igual. ----
+  // Qualquer falha aqui é capturada e NUNCA derruba o signaling.
+  if (referral && REFERRAL_ROUTE_RE.test(req.url)) {
+    referral.handle(req, res).then((handled) => {
+      if (!handled && !res.writableEnded) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end('{"error":"not_found"}');
+      }
+    }).catch((err) => {
+      console.error('[referral] erro:', err);
+      if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'application/json' });
+      if (!res.writableEnded) res.end('{"error":"internal"}');
+    });
+    return;
+  }
 
   // ---- Epoch payout (claim_epoch): consulta de merkle root/proof publicados
   // por epochJob.js. Precisa vir cedo, antes do fallback de texto no fim
