@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import multer from 'multer';
 import { optimizeMediaFile, optimizeMediaDir, optimizeVideoBuffer, checkFfmpeg } from './mediaOptimize.js';
+import { registerGenerateRoutes } from './aiGenerate.js';
 import { v4 as uuidv4 } from 'uuid';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
@@ -27,44 +28,19 @@ const {
   deleteFileFromGateway, publishRoutes, fetchFileFromGateway, isStreamable,
 } = require('./gateway-client/publish.cjs');
 
-// Publicação nos nós é OBRIGATÓRIA: o disco local (hosting/sites/<id>) é só
-// um estágio temporário de processamento (extrair zip, medir tamanho,
-// publicar). Depois que a publicação nos nós é confirmada, o diretório local
-// é apagado — quem serve o site pro visitante é sempre o gateway/rede de
-// nós (ver sendSiteFile), nunca mais o disco desta VPS.
 const GATEWAY_URL = process.env.GATEWAY_URL || null;
 const GATEWAY_ADMIN_TOKEN = process.env.GATEWAY_ADMIN_TOKEN || null;
 const GATEWAY_RELAY_URL = process.env.GATEWAY_RELAY_URL || null;
-// SIGNALING_ADMIN_TOKEN é o token do sever/server.js (rota GET /nodes),
-// que é um processo/porta diferente do gateway — não confundir com
-// GATEWAY_ADMIN_TOKEN, que é do sever/gateway/gateway.js.
 const SIGNALING_ADMIN_TOKEN = process.env.SIGNALING_ADMIN_TOKEN || null;
 const GATEWAY_NODE_HOST = process.env.GATEWAY_NODE_HOST || null;
 const GATEWAY_NODE_PORT = process.env.GATEWAY_NODE_PORT || null;
 const GATEWAY_BASE_DOMAIN = process.env.GATEWAY_BASE_DOMAIN || 'gateway.local';
-// Domínio público que os usuários acessam (ex: vagalun.shop). Usado só pra
-// decidir se um Host recebido é o painel/API (apex, www, app, api, signal)
-// ou o subdomínio de um site publicado (ex: cole.vagalun.shop).
 const PUBLIC_BASE_DOMAIN = process.env.PUBLIC_BASE_DOMAIN || GATEWAY_BASE_DOMAIN;
 const RESERVED_SUBDOMAINS = new Set(
   (process.env.RESERVED_SUBDOMAINS || 'www,app,api,signal,gateway')
     .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
 );
 
-// Pergunta ao signaling (sever/server.js) quem está conectado AGORA, em vez
-// de confiar num nodeId fixo salvo no .env. Peers (celulares) são efêmeros:
-// entram e saem o tempo todo, então essa lista precisa ser consultada a
-// cada publish, nunca hardcoded.
-//
-// IMPORTANTE: o /nodes do signaling é uma lista "crua" de QUALQUER cliente
-// WebSocket conectado — não só celulares. O próprio processo gateway fica
-// conectado o tempo todo como GATEWAY_RELAY_NODE_ID (default 'gateway-1',
-// ver sever/gateway/content.js) pra poder pedir shards via relay, e scripts
-// de publish (esse arquivo, o CLI) se conectam com nodeId tipo
-// 'hosting-platform-<timestamp>' ou 'publisher-<timestamp>'. Nenhum desses é
-// um celular capaz de armazenar/servir shard — se entrarem na lista de "nós
-// disponíveis pra publicar", o publish tenta mandar shard pra eles e trava em
-// timeout (foi o bug que causou "timeout esperando resposta de gateway-1").
 const INFRA_NODE_IDS = new Set(
   (process.env.GATEWAY_RELAY_NODE_ID || 'gateway-1').split(',').map((s) => s.trim()).filter(Boolean)
 );
@@ -73,7 +49,6 @@ function isInfraNodeId(nodeId) {
 }
 async function getOnlineRelayNodeIds() {
   if (!GATEWAY_RELAY_URL) return [];
-  // GATEWAY_RELAY_URL é ws://host:porta — a rota /nodes é HTTP na mesma porta.
   const httpUrl = GATEWAY_RELAY_URL.replace(/^ws/, 'http').replace(/\/$/, '') + '/nodes';
   const headers = SIGNALING_ADMIN_TOKEN ? { 'X-Admin-Token': SIGNALING_ADMIN_TOKEN } : {};
   const resp = await fetch(httpUrl, { headers });
@@ -873,6 +848,15 @@ app.get('/api/auth/me', authenticate, (req, res) => {
   
   const { password, verifyToken, ...safe } = user;
   res.json(safe);
+});
+
+// ============ CONSTRUTOR DE SITES COM IA (aiGenerate.js) ============
+// /api/generate, /api/generate/publish e /drafts/:id. Fica ANTES das rotas
+// catch-all (/:siteId, /:siteId/*) lá embaixo, senão /drafts/x/ seria lido como site.
+registerGenerateRoutes(app, {
+  authenticate, sites, saveDB, findUserById, getPlan, uuidv4,
+  sitesDir, draftsDir: path.join(__dirname, 'drafts'),
+  publishToGateway, publicBaseDomain: PUBLIC_BASE_DOMAIN,
 });
 
 // ============ SITES ROUTES ============
@@ -2224,4 +2208,3 @@ app.listen(PORT, () => {
 💰 Payments: Solana (devnet)
   `);
 });
-
