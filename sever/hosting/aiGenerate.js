@@ -1,15 +1,4 @@
-// Construtor de sites com IA (painel: página inicial "AI Website Builder").
-//
-// Rotas (o painel em client/src/pages/Home.jsx já chama exatamente estas):
-//   POST /api/generate          { prompt, siteId? }  -> { id, url, updated }
-//        Gera (ou ajusta, se vier siteId) um rascunho em drafts/<id>/index.html. Sem login.
-//   GET  /drafts/:id            Preview do rascunho (usado no iframe do painel).
-//   POST /api/generate/publish  { draftId }  (Bearer token) -> { success, site }
-//        Publica o rascunho nos nós, igual ao upload de .zip.
-//
-// Usa a API da Groq (formato OpenAI). Variáveis do .env:
-//   GROQ_API_KEY (obrigatória), GROQ_MODEL, GROQ_REASONING_EFFORT (opcional, p/ modelos com raciocínio)
-//   GEN_PER_IP_PER_HOUR (8), GEN_MAX_CONCURRENT (3), DRAFT_TTL_DAYS (7)
+
 import fs from 'fs';
 import path from 'path';
 import crypto from 'node:crypto';
@@ -27,6 +16,7 @@ Rules:
 - Responsive (mobile first), accessible (semantic tags, alt text, contrast), modern and visually strong. Include <meta name="viewport"> and a meaningful <title>.
 - Write the site's text in the same language as the user's description.
 - Make it actually work: working navigation, interactive widgets (cart, filters, forms with client-side validation, etc.) implemented in vanilla JS. Forms must not submit to any server; show a friendly confirmation instead.
+- Be efficient: keep the whole file under about 25 KB (roughly 600 lines). Short, punchy copy; compact CSS; no long filler text. A complete small site beats a huge cut-off one.
 - Never include the user's secrets, trackers, or code that calls external APIs.
 - When given an existing site plus a change request, return the COMPLETE updated file, keeping everything the user did not ask to change.`;
 
@@ -39,15 +29,11 @@ function slugify(text) {
 }
 
 function extractHtml(text) {
-  let t = String(text || '').trim();
-  const fence = t.match(/```(?:html)?\s*([\s\S]*?)```/i);
-  if (fence && /<html|<!doctype/i.test(fence[1])) t = fence[1].trim();
-  else {
-    const i = t.search(/<!doctype html|<html[\s>]/i);
-    if (i > 0) t = t.slice(i);
-  }
-  if (!/<!doctype html|<html[\s>]/i.test(t) || !/<\/html>\s*$/i.test(t)) return null;
-  return t;
+  const t = String(text || '');
+  const start = t.search(/<!doctype html|<html[\s>]/i);
+  const end = t.toLowerCase().lastIndexOf('</html>');
+  if (start < 0 || end < start) return null;           // não começou ou foi cortado antes de fechar
+  return t.slice(start, end + '</html>'.length).trim(); // descarta ``` e conversa antes/depois
 }
 
 function atomicWrite(file, data) {
@@ -115,14 +101,14 @@ export function registerGenerateRoutes(app, deps) {
       model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
       messages,
       temperature: 0.7,
-      max_completion_tokens: 16000,
+      max_completion_tokens: num('GEN_MAX_TOKENS', 16000),
     };
     if (process.env.GROQ_REASONING_EFFORT) body.reasoning_effort = process.env.GROQ_REASONING_EFFORT;
     const resp = await fetch(GROQ_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(150_000),
+      signal: AbortSignal.timeout(80_000), // 2 tentativas cabem nos 170s que o painel espera
     });
     if (!resp.ok) {
       const txt = (await resp.text().catch(() => '')).slice(0, 300);
@@ -131,7 +117,8 @@ export function registerGenerateRoutes(app, deps) {
       throw Object.assign(new Error('A IA não conseguiu responder agora. Tente de novo.'), { status: 502 });
     }
     const j = await resp.json();
-    return j?.choices?.[0]?.message?.content || '';
+    const choice = j?.choices?.[0];
+    return { content: choice?.message?.content || '', finish: choice?.finish_reason || '', usage: j?.usage };
   }
 
   // ───────────── POST /api/generate ─────────────
@@ -171,9 +158,23 @@ export function registerGenerateRoutes(app, deps) {
         messages.push({ role: 'user', content: prompt });
       }
 
-      const html = extractHtml(await askGroq(messages));
+      let html = null;
+      for (let attempt = 1; attempt <= 2 && !html; attempt++) {
+        const msgs = attempt === 1 ? messages : [
+          ...messages,
+          { role: 'user', content: 'IMPORTANT: your previous answer was cut off before </html>. Return a MORE COMPACT but still complete version (under 20 KB), ending with </html>.' },
+        ];
+        const out = await askGroq(msgs);
+        html = extractHtml(out.content);
+        if (!html) {
+          console.warn(`[generate] tentativa ${attempt} sem </html>: finish_reason=${out.finish} tokens=${JSON.stringify(out.usage || {})} ` +
+            `tamanho=${out.content.length} fim=${JSON.stringify(out.content.slice(-80))}`);
+        }
+      }
       if (!html) {
-        return res.status(502).json({ error: 'A IA devolveu uma resposta incompleta. Tente uma descrição mais curta.' });
+        return res.status(502).json({
+          error: 'A IA não conseguiu terminar o site desta vez (a resposta veio cortada). Tente de novo — se repetir, peça algo um pouco mais simples.',
+        });
       }
       if (Buffer.byteLength(html) > MAX_HTML_BYTES) {
         return res.status(502).json({ error: 'O site gerado ficou grande demais. Peça algo mais simples.' });
